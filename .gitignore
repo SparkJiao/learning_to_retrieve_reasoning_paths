@@ -8,3 +8,9 @@
 *.bin
 *.npz
 __pycache__/
+update_tar.sh
+.vscode
+experiments
+oss_utils.py
+tar_exclude_file
+data

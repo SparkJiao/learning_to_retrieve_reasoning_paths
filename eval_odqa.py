@@ -53,12 +53,16 @@ class ODQAEval:
                             required=True,
                             help="DB path.")
 
-        parser.add_argument("--bert_model_graph_retriever", default='bert-base-uncased', type=str,
+        parser.add_argument("--bert_model_graph_retriever",
+                            default='/home/admin/workspace/bert-base-uncased',
+                            type=str,
                             help="Bert pre-trained model selected in the list: bert-base-uncased, "
                             "bert-large-uncased, bert-base-cased, bert-large-cased, bert-base-multilingual-uncased, "
                             "bert-base-multilingual-cased, bert-base-chinese.")
 
-        parser.add_argument("--bert_model_sequential_sentence_selector", default='bert-base-uncased', type=str,
+        parser.add_argument("--bert_model_sequential_sentence_selector",
+                            default='/home/admin/workspace/bert-base-uncased',
+                            type=str,
                             help="Bert pre-trained model selected in the list: bert-base-uncased, "
                             "bert-large-uncased, bert-base-cased, bert-large-cased, bert-base-multilingual-uncased, "
                             "bert-base-multilingual-cased, bert-base-chinese.")

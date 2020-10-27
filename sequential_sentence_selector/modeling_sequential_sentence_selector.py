@@ -1,4 +1,5 @@
-from pytorch_pretrained_bert.modeling import BertPreTrainedModel, BertModel
+# from pytorch_pretrained_bert.modeling import BertPreTrainedModel, BertModel
+from transformers.modeling_bert import BertPreTrainedModel, BertModel
 
 import torch
 import torch.nn as nn
@@ -28,7 +29,8 @@ class BertForSequentialSentenceSelector(BertPreTrainedModel):
         self.eos = Parameter(torch.FloatTensor(config.hidden_size).uniform_(-0.1, 0.1))
         self.bias = Parameter(torch.FloatTensor(1).zero_())
 
-        self.apply(self.init_bert_weights)
+        # self.apply(self.init_bert_weights)
+        self.init_weights()
         self.cpu = torch.device('cpu')
 
     '''
@@ -62,7 +64,7 @@ class BertForSequentialSentenceSelector(BertPreTrainedModel):
                 token_type_ids_ = token_type_ids[start:start+chunk_len, :]
                 attention_mask_ = attention_mask[start:start+chunk_len, :]
 
-                encoded_layers, pooled_output_ = self.bert(input_ids_, token_type_ids_, attention_mask_, output_all_encoded_layers=False)
+                encoded_layers, pooled_output_ = self.bert(input_ids=input_ids_, token_type_ids=token_type_ids_, attention_mask=attention_mask_)[:2]
                 encoded_layers = encoded_layers[:, 0]
                 
                 if start == 0:

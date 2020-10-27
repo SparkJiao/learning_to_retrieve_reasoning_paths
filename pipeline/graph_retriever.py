@@ -9,6 +9,7 @@ from graph_retriever.utils import tokenize_paragraph_transformers
 from graph_retriever.utils import GraphRetrieverConfig
 from graph_retriever.utils import expand_links
 from graph_retriever.modeling_graph_retriever import BertForGraphRetriever
+from graph_retriever.modeling_graph_retriever_roberta import RobertaForGraphRetriever
 
 from transformers import PreTrainedTokenizer, AutoTokenizer
 

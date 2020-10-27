@@ -1,10 +1,11 @@
 import torch
 
-from pytorch_pretrained_bert.tokenization import BertTokenizer
+# from pytorch_pretrained_bert.tokenization import BertTokenizer
+from transformers import BertTokenizer
 
-from reader.modeling_reader import BertForQuestionAnsweringConfidence
+from reader.modeling_reader import BertForQuestionAnsweringConfidence, RobertaForQuestionAnsweringConfidence
 from reader.rc_utils import read_squad_style_hotpot_examples, \
-    convert_examples_to_features, write_predictions_yes_no_beam
+    convert_examples_to_features, write_predictions_yes_no_beam, convert_examples_to_features_yes_no_roberta
 
 import collections
 
@@ -21,7 +22,8 @@ class Reader:
 
         print('initializing Reader...', flush=True)
         self.model = BertForQuestionAnsweringConfidence.from_pretrained(args.reader_path,  num_labels=4, no_masking=True)
-        self.tokenizer = BertTokenizer.from_pretrained(args.reader_path, args.do_lower_case)
+        # self.model = RobertaForQuestionAnsweringConfidence.from_pretrained(args.reader_path, num_labels=4, no_masking=True)
+        self.tokenizer = BertTokenizer.from_pretrained(args.reader_path, do_lower_case=args.do_lower_case)
         self.device = device
         
         self.model.to(device)
@@ -89,6 +91,13 @@ class Reader:
             max_query_length=args.max_query_length,
             is_training=False,
             quiet = True)
+        # features = convert_examples_to_features_yes_no_roberta(
+        #     examples=e,
+        #     tokenizer=self.tokenizer,
+        #     max_seq_length=args.max_seq_length,
+        #     doc_stride=args.doc_stride,
+        #     max_query_length=args.max_query_length,
+        # )
 
         all_input_ids = torch.tensor([f.input_ids for f in features], dtype=torch.long)
         all_input_masks = torch.tensor([f.input_mask for f in features], dtype=torch.long)

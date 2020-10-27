@@ -511,7 +511,7 @@ def convert_examples_to_features(examples, max_seq_length, max_para_num, graph_r
     features = []
 
     logger.info('#### Converting examples to features... ####')
-    for (ex_index, example) in enumerate(tqdm(examples, desc='Example')):
+    for (ex_index, example) in enumerate(tqdm(examples, desc='Example', dynamic_ncols=True)):
         # tokens_q = tokenize_question(example.question, tokenizer)
 
         ##############
@@ -582,6 +582,9 @@ def convert_examples_to_features(examples, max_seq_length, max_para_num, graph_r
                     title2index[l] = len(title2index)
                     example.title_order.append(l)
                     p = example.all_linked_paras_dic[p_][l]
+
+                    if not p:
+                        continue
 
                     input_ids_, input_masks_, segment_ids_ = tokenize_paragraph_transformers(p, example.question,
                                                                                              max_seq_length, tokenizer)

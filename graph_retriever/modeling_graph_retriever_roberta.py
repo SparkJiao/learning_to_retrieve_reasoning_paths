@@ -1,5 +1,5 @@
-# from pytorch_pretrained_bert.modeling import BertPreTrainedModel, BertModel
-from transformers import BertPreTrainedModel, BertModel, BertConfig, PreTrainedTokenizer
+from transformers.modeling_roberta import RobertaModel, RobertaPreTrainedModel, RobertaConfig
+from transformers import PreTrainedTokenizer
 
 import torch
 import torch.nn as nn
@@ -7,28 +7,25 @@ import torch.nn.functional as F
 from torch.nn.parameter import Parameter
 
 try:
-    # from graph_retriever.utils import tokenize_question
-    # from graph_retriever.utils import tokenize_paragraph
     from graph_retriever.utils import expand_links
 except:
-    # from utils import tokenize_question
-    # from utils import tokenize_paragraph
     from utils import expand_links
 
 
-class BertForGraphRetriever(BertPreTrainedModel):
+class RobertaForGraphRetriever(RobertaPreTrainedModel):
 
-    def __init__(self, config: BertConfig, graph_retriever_config):
-        super(BertForGraphRetriever, self).__init__(config)
+    def __init__(self, config: RobertaConfig, graph_retriever_config):
+        super(RobertaForGraphRetriever, self).__init__(config)
 
         self.graph_retriever_config = graph_retriever_config
 
-        self.bert = BertModel(config)
+        self.roberta = RobertaModel(config)
 
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
 
         # Initial state
-        self.s = Parameter(torch.FloatTensor(config.hidden_size).uniform_(-0.1, 0.1))
+        self.s = Parameter(torch.FloatTensor(
+            config.hidden_size).uniform_(-0.1, 0.1))
 
         # Scaling factor for weight norm
         self.g = Parameter(torch.FloatTensor(1).fill_(1.0))
@@ -37,7 +34,8 @@ class BertForGraphRetriever(BertPreTrainedModel):
         self.rw = nn.Linear(2 * config.hidden_size, config.hidden_size)
 
         # EOE and output bias
-        self.eos = Parameter(torch.FloatTensor(config.hidden_size).uniform_(-0.1, 0.1))
+        self.eos = Parameter(torch.FloatTensor(
+            config.hidden_size).uniform_(-0.1, 0.1))
         self.bias = Parameter(torch.FloatTensor(1).zero_())
 
         self.init_weights()
@@ -69,9 +67,9 @@ class BertForGraphRetriever(BertPreTrainedModel):
 
         # [CLS] vectors for Q-P pairs
         if split_chunk is None:
-            outputs = self.bert(input_ids=input_ids,
-                                attention_mask=attention_mask,
-                                token_type_ids=token_type_ids)
+            outputs = self.roberta(input_ids=input_ids,
+                                   attention_mask=attention_mask,
+                                   token_type_ids=token_type_ids)
             pooled_output = outputs[0][:, 0]
 
         # an option to reduce GPU memory consumption at eval time, by splitting all the Q-P pairs into smaller chunks
@@ -89,27 +87,27 @@ class BertForGraphRetriever(BertPreTrainedModel):
                 token_type_ids_ = token_type_ids[start:start + chunk_len, :]
                 attention_mask_ = attention_mask[start:start + chunk_len, :]
 
-                # encoded_layers, pooled_output_ = self.bert(input_ids_, token_type_ids_, attention_mask_,
-                #                                            output_all_encoded_layers=False)
-                # encoded_layers = encoded_layers[:, 0]
-                outputs = self.bert(input_ids=input_ids_,
-                                    attention_mask=attention_mask_,
-                                    token_type_ids=token_type_ids_)
+                outputs = self.roberta(input_ids=input_ids_,
+                                       attention_mask=attention_mask_,
+                                       token_type_ids=token_type_ids_)
                 encoded_layers = outputs[0][:, 0]
 
                 if start == 0:
                     pooled_output = encoded_layers
                 else:
-                    pooled_output = torch.cat((pooled_output, encoded_layers), dim=0)
+                    pooled_output = torch.cat(
+                        (pooled_output, encoded_layers), dim=0)
 
                 start = end + 1
 
             pooled_output = pooled_output.contiguous()
 
-        paragraphs = pooled_output.view(pooled_output.size(0) // N, N, pooled_output.size(1))  # (B, N, D), D: BERT dim
+        paragraphs = pooled_output.view(pooled_output.size(
+            0) // N, N, pooled_output.size(1))  # (B, N, D), D: BERT dim
         EOE = self.eos.unsqueeze(0).unsqueeze(0)  # (1, 1, D)
-        EOE = EOE.expand(paragraphs.size(0), EOE.size(1), EOE.size(2))  # (B, 1, D)
-        EOE = self.bert.encoder.layer[-1].output.LayerNorm(EOE)
+        EOE = EOE.expand(paragraphs.size(0), EOE.size(1),
+                         EOE.size(2))  # (B, 1, D)
+        EOE = self.roberta.encoder.layer[-1].output.LayerNorm(EOE)
         paragraphs = torch.cat((paragraphs, EOE), dim=1)  # (B, N+1, D)
 
         # Initial state
@@ -129,7 +127,8 @@ class BertForGraphRetriever(BertPreTrainedModel):
 
     def forward(self, input_ids, token_type_ids, attention_mask, output_mask, target, max_num_steps):
 
-        paragraphs, state = self.encode(input_ids, token_type_ids, attention_mask)
+        paragraphs, state = self.encode(
+            input_ids, token_type_ids, attention_mask)
 
         for i in range(max_num_steps):
             if i == 0:
@@ -139,13 +138,16 @@ class BertForGraphRetriever(BertPreTrainedModel):
                 state = torch.cat((state, input), dim=2)  # (B, 1, 2*D)
                 state = self.rw(state)  # (B, 1, D)
                 state = self.weight_norm(state)
-                h = torch.cat((h, state), dim=1)  # ...--> (B, max_num_steps, D)
+                # ...--> (B, max_num_steps, D)
+                h = torch.cat((h, state), dim=1)
 
         h = self.dropout(h)
-        output = torch.bmm(h, paragraphs.transpose(1, 2))  # (B, max_num_steps, N+1)
+        output = torch.bmm(h, paragraphs.transpose(1, 2)
+                           )  # (B, max_num_steps, N+1)
         output = output + self.bias
 
-        loss = F.binary_cross_entropy_with_logits(output, target, weight=output_mask, reduction='mean')
+        loss = F.binary_cross_entropy_with_logits(
+            output, target, weight=output_mask, reduction='mean')
         return loss
 
     def beam_search(self, input_ids, token_type_ids, attention_mask, examples, tokenizer: PreTrainedTokenizer,
@@ -162,32 +164,38 @@ class BertForGraphRetriever(BertPreTrainedModel):
 
         eos_index = N
 
-        init_paragraphs, state = self.encode(input_ids, token_type_ids, attention_mask, split_chunk=split_chunk)
+        init_paragraphs, state = self.encode(
+            input_ids, token_type_ids, attention_mask, split_chunk=split_chunk)
 
         # Output matrix to be populated
-        ps = torch.FloatTensor(N + 1, self.s.size(0)).zero_().to(self.s.device)  # (N+1, D)
+        ps = torch.FloatTensor(N + 1, self.s.size(0)
+                               ).zero_().to(self.s.device)  # (N+1, D)
 
         for i in range(B):
             init_context_len = len(examples[i].context)
 
             # Populating the output matrix by the initial encoding
-            ps[:init_context_len, :].copy_(init_paragraphs[i, :init_context_len, :])
+            ps[:init_context_len, :].copy_(
+                init_paragraphs[i, :init_context_len, :])
             ps[-1, :].copy_(init_paragraphs[i, -1, :])
             encoded_titles = set(examples[i].title_order)
 
-            pred_ = [[[], [], 1.0] for _ in range(beam)]  # [hist_1, topk_1, score_1], [hist_2, topk_2, score_2], ...
+            # [hist_1, topk_1, score_1], [hist_2, topk_2, score_2], ...
+            pred_ = [[[], [], 1.0] for _ in range(beam)]
             prob_ = [[] for _ in range(beam)]
 
             state_ = state[i:i + 1]  # (1, 1, D)
             state_ = state_.expand(beam, 1, state_.size(2))  # -> (beam, 1, D)
-            state_tmp = torch.FloatTensor(state_.size()).zero_().to(state_.device)
+            state_tmp = torch.FloatTensor(
+                state_.size()).zero_().to(state_.device)
 
             for j in range(self.graph_retriever_config.max_select_num):
                 if j > 0:
                     input = [p[0][-1] for p in pred_]
                     input = torch.LongTensor(input).to(ps.device)
                     input = ps[input].unsqueeze(1)  # (beam, 1, D)
-                    state_ = torch.cat((state_, input), dim=2)  # (beam, 1, 2*D)
+                    # (beam, 1, 2*D)
+                    state_ = torch.cat((state_, input), dim=2)
                     state_ = self.rw(state_)  # (beam, 1, D)
                     state_ = self.weight_norm(state_)
 
@@ -211,7 +219,8 @@ class BertForGraphRetriever(BertPreTrainedModel):
                                 linked_paras_dic = retriever.get_hyperlinked_abstract_paragraphs(
                                     prev_title, examples[i].question)
                                 examples[i].all_linked_paras_dic[prev_title] = {}
-                                examples[i].all_linked_paras_dic[prev_title].update(linked_paras_dic)
+                                examples[i].all_linked_paras_dic[prev_title].update(
+                                    linked_paras_dic)
                                 examples[i].all_paras.update(linked_paras_dic)
 
                         for linked_title in examples[i].all_linked_paras_dic[prev_title]:
@@ -253,17 +262,23 @@ class BertForGraphRetriever(BertPreTrainedModel):
                             segment_ids.append(segment_ids_)
 
                         input_ids = torch.LongTensor([input_ids]).to(ps.device)
-                        token_type_ids = torch.LongTensor([segment_ids]).to(ps.device)
-                        attention_mask = torch.LongTensor([input_masks]).to(ps.device)
+                        token_type_ids = torch.LongTensor(
+                            [segment_ids]).to(ps.device)
+                        attention_mask = torch.LongTensor(
+                            [input_masks]).to(ps.device)
 
-                        paragraphs, _ = self.encode(input_ids, token_type_ids, attention_mask, split_chunk=split_chunk)
+                        paragraphs, _ = self.encode(
+                            input_ids, token_type_ids, attention_mask, split_chunk=split_chunk)
                         paragraphs = paragraphs.squeeze(0)
-                        ps[prev_title_size:prev_title_size + len(new_titles)].copy_(paragraphs[:len(new_titles), :])
+                        ps[prev_title_size:prev_title_size +
+                            len(new_titles)].copy_(paragraphs[:len(new_titles), :])
 
                         if retriever is not None and self.graph_retriever_config.expand_links:
-                            expand_links(examples[i].all_paras, examples[i].all_linked_paras_dic, examples[i].all_paras)
+                            expand_links(
+                                examples[i].all_paras, examples[i].all_linked_paras_dic, examples[i].all_paras)
 
-                output = torch.bmm(state_, ps.unsqueeze(0).expand(beam, ps.size(0), ps.size(1)).transpose(1, 2))  # (beam, 1, N+1)
+                output = torch.bmm(state_, ps.unsqueeze(0).expand(
+                    beam, ps.size(0), ps.size(1)).transpose(1, 2))  # (beam, 1, N+1)
                 output = output + self.bias
                 output = torch.sigmoid(output)
 
@@ -313,7 +328,8 @@ class BertForGraphRetriever(BertPreTrainedModel):
 
                 b = 0
                 while b < beam:
-                    s, p = torch.max(score.view(score.size(0) * score.size(1)), dim=0)
+                    s, p = torch.max(score.view(
+                        score.size(0) * score.size(1)), dim=0)
                     s = s.item()
                     p = p.item()
                     row = p // score.size(1)
@@ -329,7 +345,8 @@ class BertForGraphRetriever(BertPreTrainedModel):
                          s]
                     new_pred_.append(p)
 
-                    p = [[p_ for p_ in prb] for prb in prob_[row]] + [output[row].tolist()]
+                    p = [[p_ for p_ in prb]
+                         for prb in prob_[row]] + [output[row].tolist()]
                     new_prob_.append(p)
 
                     state_tmp[b].copy_(state_[row])

@@ -4,7 +4,8 @@ from sequential_sentence_selector.run_sequential_sentence_selector import InputF
 from sequential_sentence_selector.run_sequential_sentence_selector import DataProcessor
 from sequential_sentence_selector.run_sequential_sentence_selector import convert_examples_to_features
 
-from pytorch_pretrained_bert.tokenization import BertTokenizer
+# from pytorch_pretrained_bert.tokenization import BertTokenizer
+from transformers import BertTokenizer
 
 import torch
 from torch.utils.data import TensorDataset, DataLoader, SequentialSampler

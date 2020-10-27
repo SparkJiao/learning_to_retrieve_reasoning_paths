@@ -8,8 +8,11 @@ import math
 import collections
 from io import open
 import numpy as np
+from tqdm import tqdm
 
-from pytorch_pretrained_bert.tokenization import BasicTokenizer, whitespace_tokenize
+from transformers.tokenization_roberta import RobertaTokenizer
+from transformers.tokenization_bert import whitespace_tokenize
+from transformers import BasicTokenizer, PreTrainedTokenizer
 
 logger = logging.getLogger(__name__)
 
@@ -109,7 +112,7 @@ def read_squad_examples(input_file, is_training, version_2_with_negative, max_an
         return False
 
     examples = []
-    for entry in input_data:
+    for entry in tqdm(input_data, desc='reading squad examples...', dynamic_ncols=True):
         for paragraph in entry["paragraphs"]:
             paragraph_text = paragraph["context"]
             doc_tokens = []
@@ -205,7 +208,9 @@ def read_squad_examples(input_file, is_training, version_2_with_negative, max_an
                 examples.append(example)
     return examples
 
-# TODO: check if we could remove this functions; it seems we don't need this? 
+# TODO: check if we could remove this functions; it seems we don't need this?
+
+
 def convert_examples_to_features(examples, tokenizer, max_seq_length,
                                  doc_stride, max_query_length, is_training,
                                  cls_token_at_end=False,
@@ -643,6 +648,233 @@ def convert_examples_to_features_yes_no(examples, tokenizer, max_seq_length,
     return features
 
 
+def convert_examples_to_features_yes_no_roberta(examples, tokenizer: RobertaTokenizer, max_seq_length,
+                                                doc_stride, max_query_length, is_training,
+                                                cls_token_at_end=False,
+                                                sequence_a_segment_id=0, sequence_b_segment_id=1,
+                                                cls_token_segment_id=0,
+                                                mask_padding_with_zero=True):
+    """Loads a data file into a list of `InputBatch`s."""
+
+    unique_id = 1000000000
+
+    features = []
+    for (example_index, example) in enumerate(tqdm(examples, desc='converting examples to features...', dynamic_ncols=True)):
+        query_tokens = tokenizer.tokenize(example.question_text)
+
+        if len(query_tokens) > max_query_length > 0:
+            query_tokens = query_tokens[0:max_query_length]
+
+        tok_to_orig_index = []
+        orig_to_tok_index = []
+        all_doc_tokens = []
+        for (i, token) in enumerate(example.doc_tokens):
+            orig_to_tok_index.append(len(all_doc_tokens))
+            sub_tokens = tokenizer.tokenize(token, add_prefix_space=True)
+            for sub_token in sub_tokens:
+                tok_to_orig_index.append(i)
+                all_doc_tokens.append(sub_token)
+
+        tok_start_position = None
+        tok_end_position = None
+        if is_training and example.is_impossible:
+            tok_start_position = -1
+            tok_end_position = -1
+        if is_training and not example.is_impossible:
+            tok_start_position = orig_to_tok_index[example.start_position]
+            if example.end_position < len(example.doc_tokens) - 1:
+                tok_end_position = orig_to_tok_index[example.end_position + 1] - 1
+            else:
+                tok_end_position = len(all_doc_tokens) - 1
+            (tok_start_position, tok_end_position) = _improve_answer_span(
+                all_doc_tokens, tok_start_position, tok_end_position, tokenizer,
+                example.orig_answer_text)
+
+        # The -4 accounts for <s>, </s></s> and </s>
+        max_tokens_for_doc = max_seq_length - len(query_tokens) - 4
+
+        # We can have documents that are longer than the maximum sequence length.
+        # To deal with this we do a sliding window approach, where we take chunks
+        # of the up to our max length with a stride of `doc_stride`.
+        _DocSpan = collections.namedtuple(  # pylint: disable=invalid-name
+            "DocSpan", ["start", "length"])
+        doc_spans = []
+        start_offset = 0
+        while start_offset < len(all_doc_tokens):
+            length = len(all_doc_tokens) - start_offset
+            if length > max_tokens_for_doc:
+                length = max_tokens_for_doc
+            doc_spans.append(_DocSpan(start=start_offset, length=length))
+            if start_offset + length == len(all_doc_tokens):
+                break
+            start_offset += min(length, doc_stride)
+
+        for (doc_span_index, doc_span) in enumerate(doc_spans):
+            tokens = []
+            token_to_orig_map = {}
+            token_is_max_context = {}
+            segment_ids = []
+
+            # p_mask: mask with 1 for token than cannot be in the answer (0 for token which can be in an answer)
+            # Original TF implem also keep the classification token (set to 0)
+            # (not sure why...)
+            p_mask = []
+
+            # CLS token at the beginning
+            if not cls_token_at_end:
+                tokens.append(tokenizer.cls_token)
+                segment_ids.append(cls_token_segment_id)
+                p_mask.append(0)
+                cls_index = 0
+
+            # Query
+            for token in query_tokens:
+                tokens.append(token)
+                segment_ids.append(sequence_a_segment_id)
+                p_mask.append(1)
+
+            # SEP token
+            tokens.append(tokenizer.sep_token)
+            tokens.append(tokenizer.sep_token)
+            segment_ids.append(sequence_a_segment_id)
+            segment_ids.append(sequence_a_segment_id)
+            p_mask.append(1)
+            p_mask.append(1)
+
+            # Paragraph
+            for i in range(doc_span.length):
+                split_token_index = doc_span.start + i
+                token_to_orig_map[len(
+                    tokens)] = tok_to_orig_index[split_token_index]
+
+                is_max_context = _check_is_max_context(doc_spans, doc_span_index,
+                                                       split_token_index)
+                token_is_max_context[len(tokens)] = is_max_context
+                tokens.append(all_doc_tokens[split_token_index])
+                segment_ids.append(sequence_b_segment_id)
+                p_mask.append(0)
+            paragraph_len = doc_span.length
+
+            # SEP token
+            tokens.append(tokenizer.sep_token)
+            segment_ids.append(sequence_b_segment_id)
+            p_mask.append(1)
+
+            # CLS token at the end
+            if cls_token_at_end:
+                tokens.append(tokenizer.cls_token)
+                segment_ids.append(cls_token_segment_id)
+                p_mask.append(0)
+                cls_index = len(tokens) - 1  # Index of classification token
+
+            input_ids = tokenizer.convert_tokens_to_ids(tokens)
+
+            # The mask has 1 for real tokens and 0 for padding tokens. Only real
+            # tokens are attended to.
+            input_mask = [1 if mask_padding_with_zero else 0] * len(input_ids)
+
+            # Zero-pad up to the sequence length.
+            while len(input_ids) < max_seq_length:
+                # input_ids.append(pad_token)
+                input_ids.append(tokenizer.pad_token_id)
+                input_mask.append(0 if mask_padding_with_zero else 1)
+                # segment_ids.append(pad_token_segment_id)
+                segment_ids.append(tokenizer.pad_token_type_id)
+                p_mask.append(1)
+
+            assert len(input_ids) == max_seq_length
+            assert len(input_mask) == max_seq_length
+            assert len(segment_ids) == max_seq_length
+
+            span_is_impossible = example.is_impossible
+            start_position = None
+            end_position = None
+            switch = None
+
+            if is_training and not span_is_impossible:
+                doc_start = doc_span.start
+                doc_end = doc_span.start + doc_span.length - 1
+                out_of_span = False
+                if not (tok_start_position >= doc_start and
+                        tok_end_position <= doc_end):
+                    out_of_span = True
+                if out_of_span:
+                    start_position = 0
+                    end_position = 0
+                    span_is_impossible = True
+                else:
+                    doc_offset = len(query_tokens) + 2
+                    start_position = tok_start_position - doc_start + doc_offset
+                    end_position = tok_end_position - doc_start + doc_offset
+
+            if is_training and span_is_impossible:
+                start_position = cls_index
+                end_position = cls_index
+                switch = 1
+            elif is_training and not span_is_impossible:
+                switch = 0
+
+            # The questions whose ``is_impossible'' are originally True should
+            # be 1. Change switch to 2 or 3 if the answer is yes/no.
+            if example.is_impossible is True:
+                if example.orig_answer_text == "yes":
+                    switch = 2
+                elif example.orig_answer_text == "no":
+                    switch = 3
+                else:
+                    switch = 1
+
+            if example_index < 20:
+                logger.info("*** Example ***")
+                logger.info("unique_id: %s" % (unique_id))
+                logger.info("example_index: %s" % (example_index))
+                logger.info("doc_span_index: %s" % (doc_span_index))
+                logger.info("tokens: %s" % " ".join(tokens))
+                logger.info("string: %s" % tokenizer.convert_tokens_to_string(tokens))
+                logger.info("token_to_orig_map: %s" % " ".join([
+                    "%d:%d" % (x, y) for (x, y) in token_to_orig_map.items()]))
+                logger.info("token_is_max_context: %s" % " ".join([
+                    "%d:%s" % (x, y) for (x, y) in token_is_max_context.items()
+                ]))
+                logger.info("input_ids: %s" %
+                            " ".join([str(x) for x in input_ids]))
+                logger.info(
+                    "input_mask: %s" % " ".join([str(x) for x in input_mask]))
+                logger.info(
+                    "segment_ids: %s" % " ".join([str(x) for x in segment_ids]))
+                if is_training and span_is_impossible:
+                    logger.info("impossible example")
+                if is_training and not span_is_impossible:
+                    answer_text = " ".join(
+                        tokens[start_position:(end_position + 1)])
+                    logger.info("start_position: %d" % (start_position))
+                    logger.info("end_position: %d" % (end_position))
+                    logger.info(
+                        "answer: %s" % (answer_text))
+
+            features.append(
+                InputFeatures(
+                    unique_id=unique_id,
+                    example_index=example_index,
+                    doc_span_index=doc_span_index,
+                    tokens=tokens,
+                    token_to_orig_map=token_to_orig_map,
+                    token_is_max_context=token_is_max_context,
+                    input_ids=input_ids,
+                    input_mask=input_mask,
+                    segment_ids=segment_ids,
+                    cls_index=cls_index,
+                    p_mask=p_mask,
+                    paragraph_len=paragraph_len,
+                    start_position=start_position,
+                    end_position=end_position,
+                    switch=switch,
+                    is_impossible=span_is_impossible))
+            unique_id += 1
+
+    return features
+
+
 def _improve_answer_span(doc_tokens, input_start, input_end, tokenizer,
                          orig_answer_text):
     """Returns tokenized answer spans that better match the annotated answer."""
@@ -670,11 +902,17 @@ def _improve_answer_span(doc_tokens, input_start, input_end, tokenizer,
     # "Japanese", we just use "Japanese" as the annotation. This is fairly rare
     # in SQuAD, but does happen.
     tok_answer_text = " ".join(tokenizer.tokenize(orig_answer_text))
+    if isinstance(tokenizer, RobertaTokenizer):
+        tok_answer_text_prefix = " ".join(tokenizer.tokenize(orig_answer_text, add_prefix_space=True))
+    else:
+        tok_answer_text_prefix = None
 
     for new_start in range(input_start, input_end + 1):
         for new_end in range(input_end, new_start - 1, -1):
             text_span = " ".join(doc_tokens[new_start:(new_end + 1)])
             if text_span == tok_answer_text:
+                return (new_start, new_end)
+            if tok_answer_text_prefix and tok_answer_text_prefix == text_span:
                 return (new_start, new_end)
 
     return (input_start, input_end)
@@ -720,6 +958,7 @@ def _check_is_max_context(doc_spans, cur_span_index, position):
 
 RawResult = collections.namedtuple("RawResult",
                                    ["unique_id", "start_logits", "end_logits", "switch_logit"])
+
 
 def write_predictions_yes_no_no_empty_answer(all_examples, all_features, all_results, n_best_size,
                                              max_answer_length, do_lower_case, output_prediction_file,
@@ -922,7 +1161,217 @@ def write_predictions_yes_no_no_empty_answer(all_examples, all_features, all_res
     with open(output_prediction_file, "w") as writer:
         writer.write(json.dumps(all_predictions, indent=4) + "\n")
 
+
+def write_predictions_yes_no_no_empty_answer_roberta(all_examples, all_features, all_results, n_best_size,
+                                                     max_answer_length, do_lower_case, output_prediction_file,
+                                                     output_nbest_file, output_null_log_odds_file, verbose_logging,
+                                                     version_2_with_negative, null_score_diff_threshold,
+                                                     tokenizer: PreTrainedTokenizer, no_masking=False):
+    """Write final predictions to the json file and log-odds of null if needed."""
+    logger.info("Writing predictions to: %s" % (output_prediction_file))
+    logger.info("Writing nbest to: %s" % (output_nbest_file))
+
+    basic_tokenizer = BasicTokenizer(do_lower_case=do_lower_case)
+
+    example_index_to_features = collections.defaultdict(list)
+    for feature in all_features:
+        example_index_to_features[feature.example_index].append(feature)
+
+    unique_id_to_result = {}
+    for result in all_results:
+        unique_id_to_result[result.unique_id] = result
+
+    _PrelimPrediction = collections.namedtuple(  # pylint: disable=invalid-name
+        "PrelimPrediction",
+        ["feature_index", "start_index", "end_index", "start_logit", "end_logit"])
+
+    all_predictions = collections.OrderedDict()
+    all_nbest_json = collections.OrderedDict()
+
+    for (example_index, example) in enumerate(all_examples):
+        features = example_index_to_features[example_index]
+
+        prelim_predictions = []
+        score_null = 1000000  # large and positive
+        min_null_feature_index = 0  # the paragraph slice with min null score
+        null_start_logit = 0  # the start logit at the slice with min null score
+        null_end_logit = 0  # the end logit at the slice with min null score
+
+        for (feature_index, feature) in enumerate(features):
+            result = unique_id_to_result[feature.unique_id]
+            start_indexes = _get_best_indexes(result.start_logits, n_best_size)
+            end_indexes = _get_best_indexes(result.end_logits, n_best_size)
+            if no_masking is True:
+                feature_null_score = result.start_logits[0] + \
+                    result.end_logits[0]
+                if feature_null_score < score_null:
+                    score_null = feature_null_score
+                    min_null_feature_index = feature_index
+                    null_start_logit = result.start_logits[0]
+                    null_end_logit = result.end_logits[0]
+            # if we could have irrelevant answers, get the min score of
+            # irrelevant
+            for start_index in start_indexes:
+                for end_index in end_indexes:
+                    # We could hypothetically create invalid predictions, e.g., predict
+                    # that the start of the span is in the question. We throw out all
+                    # invalid predictions.
+                    if start_index >= len(feature.tokens):
+                        continue
+                    if end_index >= len(feature.tokens):
+                        continue
+                    if start_index not in feature.token_to_orig_map:
+                        continue
+                    if end_index not in feature.token_to_orig_map:
+                        continue
+                    if not feature.token_is_max_context.get(start_index, False):
+                        continue
+                    if end_index < start_index:
+                        continue
+                    length = end_index - start_index + 1
+                    if length > max_answer_length:
+                        continue
+                    prelim_predictions.append(
+                        _PrelimPrediction(
+                            feature_index=feature_index,
+                            start_index=start_index,
+                            end_index=end_index,
+                            start_logit=result.start_logits[start_index],
+                            end_logit=result.end_logits[end_index]))
+        if no_masking is True:
+            prelim_predictions.append(
+                _PrelimPrediction(
+                    feature_index=min_null_feature_index,
+                    start_index=0,
+                    end_index=0,
+                    start_logit=null_start_logit,
+                    end_logit=null_end_logit))
+        prelim_predictions = sorted(
+            prelim_predictions,
+            key=lambda x: (x.start_logit + x.end_logit),
+            reverse=True)
+
+        _NbestPrediction = collections.namedtuple(  # pylint: disable=invalid-name
+            "NbestPrediction", ["text", "start_logit", "end_logit", "no_answer_logit", "switch", "switch_logits"])
+        no_answer_logit = result.switch_logits[1]
+
+        seen_predictions = {}
+        nbest = []
+        for pred in prelim_predictions:
+            if len(nbest) >= n_best_size:
+                break
+            feature = features[pred.feature_index]
+            if pred.start_index > 0:  # this is a non-null prediction
+                tok_tokens = feature.tokens[pred.start_index:(
+                    pred.end_index + 1)]
+                orig_doc_start = feature.token_to_orig_map[pred.start_index]
+                orig_doc_end = feature.token_to_orig_map[pred.end_index]
+                orig_tokens = example.doc_tokens[orig_doc_start:(
+                    orig_doc_end + 1)]
+                # tok_text = " ".join(tok_tokens)
+                tok_text = tokenizer.convert_tokens_to_string(tok_tokens)
+
+                # De-tokenize WordPieces that have been split off.
+                # tok_text = tok_text.replace(" ##", "")
+                # tok_text = tok_text.replace("##", "")
+
+                # Clean whitespace
+                tok_text = tok_text.strip()
+                tok_text = " ".join(tok_text.split())
+                tok_text = " ".join(basic_tokenizer.tokenize(tok_text))
+                orig_text = " ".join(orig_tokens)
+
+                final_text = get_final_text(
+                    tok_text, orig_text, do_lower_case, verbose_logging)
+                # final_text = tok_text
+                if final_text in seen_predictions:
+                    continue
+
+                seen_predictions[final_text] = True
+            else:
+                final_text = ""
+                seen_predictions[final_text] = True
+
+            nbest.append(
+                _NbestPrediction(
+                    text=final_text,
+                    start_logit=pred.start_logit,
+                    end_logit=pred.end_logit,
+                    no_answer_logit=no_answer_logit,
+                    switch=np.argmax(result.switch_logits),
+                    switch_logits=result.switch_logits
+                ))
+        # if we didn't include the empty option in the n-best, include it
+        if no_masking is True:
+            if "" not in seen_predictions:
+                nbest.append(
+                    _NbestPrediction(
+                        text="",
+                        start_logit=null_start_logit,
+                        end_logit=null_end_logit,
+                        no_answer_logit=no_answer_logit,
+                        switch=np.argmax(result.switch_logits),
+                        switch_logits=result.switch_logits
+                    ))
+
+            # In very rare edge cases we could only have single null prediction.
+            # So we just create a nonce prediction in this case to avoid
+            # failure.
+            if no_masking is True:
+                if len(nbest) == 1:
+                    nbest.insert(0,
+                                 _NbestPrediction(text="", start_logit=0.0, end_logit=0.0, no_answer_logit=1.0, switch=1, switch_logits=[0.0, 0.0, 0.0, 0.0]))
+            else:
+                if len(nbest) == 0:
+                    nbest.insert(0,
+                                 _NbestPrediction(text="", start_logit=0.0, end_logit=0.0, no_answer_logit=1.0, switch=1, switch_logits=[0.0, 0.0, 0.0, 0.0]))
+
+        # In very rare edge cases we could have no valid predictions. So we
+        # just create a nonce prediction in this case to avoid failure.
+        if not nbest:
+            nbest.append(
+                _NbestPrediction(text="", start_logit=0.0, end_logit=0.0, no_answer_logit=1.0, switch=1, switch_logits=[0.0, 0.0, 0.0, 0.0]))
+
+        assert len(nbest) >= 1
+
+        total_scores = []
+        for entry in nbest:
+            total_scores.append(entry.start_logit + entry.end_logit)
+
+        probs = _compute_softmax(total_scores)
+
+        nbest_json = []
+        for (i, entry) in enumerate(nbest):
+            output = collections.OrderedDict()
+            output["text"] = entry.text
+            output["probability"] = probs[i]
+            output["start_logit"] = entry.start_logit
+            output["end_logit"] = entry.end_logit
+            output["no_answer_prob"] = entry.no_answer_logit
+            output["switch"] = entry.switch
+            output["switch_scores"] = entry.switch_logits
+            nbest_json.append(output)
+
+        assert len(nbest_json) >= 1
+
+        # if the n-best is high enough, pick up no answer.
+        possible_answers = np.argsort(
+            nbest_json[0]["switch_scores"])[::-1]
+        if possible_answers[0] == 1:
+            all_predictions[example.qas_id] = switch_answers(
+                possible_answers[1], nbest_json[0]["text"])
+        else:
+            all_predictions[example.qas_id] = switch_answers(
+                possible_answers[0], nbest_json[0]["text"])
+
+        all_nbest_json[example.qas_id] = nbest_json
+
+    with open(output_prediction_file, "w") as writer:
+        writer.write(json.dumps(all_predictions, indent=4) + "\n")
+
 # Determine the answer spans as the one from the reasoning path with the highest probability.
+
+
 def write_predictions_yes_no_beam(all_examples, all_features, all_results, n_best_size,
                                   max_answer_length, do_lower_case, output_prediction_file,
                                   output_nbest_file, output_null_log_odds_file, verbose_logging,
@@ -1157,6 +1606,7 @@ def write_predictions_yes_no_beam(all_examples, all_features, all_results, n_bes
 
     return all_predictions, q_id_to_selected_para_lists
 
+
 def get_final_text(pred_text, orig_text, do_lower_case, verbose_logging=False):
     """Project the tokenized prediction back to the original text."""
 
@@ -1356,6 +1806,7 @@ def switch_answers(switch, span_answer):
         return "no"
     else:
         NotImplementedError()
+
 
 def read_squad_style_hotpot_examples(squad_style_hotpot_dev, is_training, version_2_with_negative,
                                      store_path_prob=False):
