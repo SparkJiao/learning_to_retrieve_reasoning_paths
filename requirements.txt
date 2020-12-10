@@ -1,4 +1,3 @@
-gdown
 glob2
 Jinja2
 joblib
@@ -6,11 +5,9 @@ jsonlines
 nltk
 pathlib2
 prettytable
-pytorch-pretrained-bert==0.6.2
-pytorch-transformers==1.2.0
 regex
 spacy==2.2.3
 tagme==0.1.3
 ujson
 unicodecsv
-transformers==3.3.1
+transformers==3.5.1

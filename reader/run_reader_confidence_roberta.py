@@ -48,6 +48,12 @@ def main():
     parser.add_argument("--output_dir", default=None, type=str, required=True,
                         help="The output directory where the model checkpoints and predictions will be written.")
 
+    # Optimizer parameters
+    parser.add_argument("--adam_epsilon", default=1e-8, type=float, help="Epsilon for Adam optimizer.")
+    parser.add_argument("--max_grad_norm", default=1.0, type=float, help="Max gradient norm.")
+    parser.add_argument("--adam_betas", default="(0.9, 0.999)", type=str)
+    parser.add_argument("--no_bias_correction", default=False, action='store_true')
+
     # Other parameters
     parser.add_argument("--train_file", default=None, type=str,
                         help="SQuAD-format json file for training.")
@@ -142,7 +148,7 @@ def main():
 
     # Save checkpoints more
     parser.add_argument('--save_gran',
-                        type=str, default="10,2",
+                        type=str, default="10,3",
                         help='"10,5" means saving a checkpoint every 1/10 of the total updates, but start saving from the 5th attempt')
     parser.add_argument('--cache_dir', type=str, default=None)
     parser.add_argument('--cached_features', type=str, default=None)
@@ -283,7 +289,10 @@ def main():
 
         optimizer = AdamW(optimizer_grouped_parameters,
                           lr=args.learning_rate,
-                          correct_bias=False)
+                          correct_bias=(not args.no_bias_correction),
+                          betas=eval(args.adam_betas),
+                          eps=args.adam_epsilon)
+    
         scheduler = get_linear_schedule_with_warmup(
             optimizer, int(num_train_optimization_steps * args.warmup_proportion), num_train_optimization_steps)
 

@@ -18,30 +18,18 @@ from torch import distributed as dst
 
 from transformers import AutoTokenizer, AdamW, get_linear_schedule_with_warmup
 
-try:
-    from modeling_graph_retriever_roberta import RobertaForGraphRetriever
-    from utils import DataProcessor
-    from utils import convert_examples_to_features
-    from utils import save, load
-    from utils import GraphRetrieverConfig
-    from oss_utils import torch_save_to_oss
-except:
-    from .modeling_graph_retriever_roberta import RobertaForGraphRetriever
-    from .utils import DataProcessor, convert_examples_to_features, save, load, GraphRetrieverConfig
-    from .oss_utils import torch_save_to_oss
+from modeling_graph_retriever_roberta import RobertaForGraphRetriever
+from utils import DataProcessor
+from utils import convert_examples_to_features
+from utils import save, load
+from utils import GraphRetrieverConfig
+from oss_utils import torch_save_to_oss, set_bucket_dir
 
 
 logging.basicConfig(format='%(asctime)s - %(levelname)s - %(name)s -   %(message)s',
                     datefmt='%m/%d/%Y %H:%M:%S',
                     level=logging.INFO)
 logger = logging.getLogger(__name__)
-
-
-def torch_save_to_oss(x, output_file):
-
-    buffer = io.BytesIO()
-    torch.save(x, buffer)
-    bucket.put_object(bucket_dir + output_file, buffer.getvalue())
 
 
 def main():
@@ -57,6 +45,7 @@ def main():
                         type=str,
                         required=True,
                         help="The output directory where the model predictions and checkpoints will be written.")
+    parser.add_argument("--oss_dir", type=str, default="graph_retriever")
     parser.add_argument('--task',
                         type=str,
                         default=None,
@@ -85,6 +74,10 @@ def main():
                         default=5e-5,
                         type=float,
                         help="The initial learning rate for Adam. (def: 5e-5)")
+    # AdamW
+    parser.add_argument("--adam_betas", default="(0.9, 0.999)", type=str)
+    parser.add_argument("--adam_epsilon", default=1e-6, type=float)
+    parser.add_argument("--no_bias_correction", default=False, action="store_true")
     parser.add_argument("--num_train_epochs",
                         default=5.0,
                         type=float,
@@ -253,6 +246,10 @@ def main():
         raise ValueError('One of train_file_path: {} or dev_file_path: {} must be non-None'.format(args.train_file_path,
                                                                                                    args.dev_file_path))
 
+    if args.local_rank in [-1, 0]:
+        set_bucket_dir(args.oss_dir)
+        torch_save_to_oss(args, "/training_args.bin")
+
     processor = DataProcessor()
 
     # Configurations of the graph retriever
@@ -338,11 +335,13 @@ def main():
         if args.local_rank != -1:
             t_total = t_total // dst.get_world_size()
 
-        optimizer = AdamW(optimizer_grouped_parameters,
-                          lr=args.learning_rate,
-                          correct_bias=False)
+        optimizer = AdamW(optimizer_grouped_parameters, lr=args.learning_rate,
+                          betas=eval(args.adam_betas), eps=args.adam_epsilon,
+                          correct_bias=(not args.no_bias_correction))
         scheduler = get_linear_schedule_with_warmup(
             optimizer, int(t_total * args.warmup_proportion), t_total)
+
+        logger.info(optimizer)
 
         if args.fp16:
             from apex import amp
@@ -539,6 +538,8 @@ def main():
                 if (chunk_index == CHUNK_NUM // 2 or save_retry) and args.local_rank in [-1, 0]:
                     status = save(model, args.output_dir, str(epc + 0.5))
                     save_retry = (not status)
+                    model_to_save = model.module if hasattr(model, 'module') else model
+                    torch_save_to_oss(model_to_save.state_dict(), f"/pytorch_model_{epc + 0.5}.bin")
 
                 del all_input_ids
                 del all_input_masks
@@ -551,6 +552,8 @@ def main():
             # Save the model at the end of the epoch
             if args.local_rank in [-1, 0]:
                 save(model, args.output_dir, str(epc + 1))
+                model_to_save = model.module if hasattr(model, 'module') else model
+                torch_save_to_oss(model_to_save.state_dict(), f"/pytorch_model_{epc + 1}.bin")
 
             epc += 1
 
