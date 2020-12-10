@@ -12,11 +12,19 @@ pai -name pytorch151
 -Doutputs="odps://crm_nlp_dev/volumes/fangxi/retrieve_hotpot_roberta_reader3" 
 -Dcluster="{\"worker\":{\"cpu\":300, \"memory\":80000, \"gpu\":100}}" -DworkerCount=4;
 
+pai -name pytorch151 
+-Dscript="file:///home/admin/workspace/project/learning_to_retrieve.tar.gz" 
+-DentryFile="reader/run_reader_confidence_roberta.py" -DuserDefinedParameters="--bert_model /data/volume1/roberta-base --train_file /data/volume2/hotpot_reader_train_data.json --predict_file /data/volume2/hotpot_dev_squad_v2.0_format.json --output_dir /data/output1/ --learning_rate 2e-5 --num_train_epochs 3 --max_seq_length 512 --doc_stride 160 --max_query_length -1 --do_train --version_2_with_negative --warmup_proportion 0.06 --adam_epsilon 1e-6 --adam_betas '(0.9, 0.98)' --train_batch_size 16 --fp16 --fp16_opt_level O2 --cached_features /data/volume3/hotpot_reader_train_data.json_roberta-base_512_160_-1 " 
+-Dvolumes="odps://crm_nlp_dev/volumes/fangxi/transformers,odps://crm_nlp_dev/volumes/fangxi/hotpot_reader_data,odps://crm_nlp_dev/volumes/fangxi/hotpot_reader_train_features_512" 
+-Doutputs="odps://crm_nlp_dev/volumes/fangxi/retrieve_hotpot_roberta_reader4" 
+-Dcluster="{\"worker\":{\"cpu\":300, \"memory\":80000, \"gpu\":100}}" -DworkerCount=4;
+
+
 
 pai -name pytorch151 
 -Dscript="file:///home/admin/workspace/project/learning_to_retrieve.tar.gz" 
 -DentryFile="graph_retriever/run_graph_retriever_roberta.py" 
--DuserDefinedParameters="--task hotpot_open --bert_model /data/volume1/roberta-base --train_file_path /data/volume2/hotpotqa_new_selector_train_data_db_2017_10_12_fix/db --output_dir /data/output1/ --max_para_num 50 --tfidf_limit 40 --neg_chunk 8 --train_batch_size 1 --gradient_accumulation_steps 1 --learning_rate 2e-5 --num_train_epochs 3 --warmup_proportion 0.06  --use_redundant --max_select_num 4 --cached_features /data/volume3/torch_cached_features_retriever --fp16 --fp16_opt_level O2" 
+-DuserDefinedParameters="--task hotpot_open --bert_model /data/volume1/roberta-base --train_file_path /data/volume2/hotpotqa_new_selector_train_data_db_2017_10_12_fix/db --output_dir /data/output1/ --max_para_num 50 --tfidf_limit 40 --neg_chunk 8 --train_batch_size 1 --gradient_accumulation_steps 1 --learning_rate 3e-5 --num_train_epochs 3 --warmup_proportion 0.06  --use_redundant --max_select_num 4 --cached_features /data/volume3/torch_cached_features_retriever --fp16 --fp16_opt_level O2 --adam_betas \"(0.9, 0.98)\" --oss_dir graph_retriever_1" 
 -Dvolumes="odps://crm_nlp_dev/volumes/fangxi/transformers,odps://crm_nlp_dev/volumes/fangxi/retrieve_datasets_and_models,odps://crm_nlp_dev/volumes/fangxi/hotpot_retriever_cache_train" 
--Doutputs="odps://crm_nlp_dev/volumes/fangxi/hotpot_roberta_retriever_output1" -Dcluster="{\"worker\":{\"cpu\":200, \"memory\":60000, \"gpu\":100}}" 
--DworkerCount=4;
+-Doutputs="odps://crm_nlp_dev/volumes/fangxi/hotpot_roberta_retriever_output1" -Dcluster="{\"worker\":{\"cpu\":400, \"memory\":100000, \"gpu\":100}}" 
+-DworkerCount=8;
