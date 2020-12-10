@@ -6,6 +6,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.nn.parameter import Parameter
 
+from modules.bert_iter_models import IterBertModelForRetrieval, IterBertPreTrainedConfig
+
 try:
     # from graph_retriever.utils import tokenize_question
     # from graph_retriever.utils import tokenize_paragraph
@@ -16,14 +18,12 @@ except ImportError:
     from utils import expand_links
 
 
-class BertForGraphRetriever(BertPreTrainedModel):
+class BertForGraphRetriever(IterBertModelForRetrieval):
 
-    def __init__(self, config: BertConfig, graph_retriever_config):
+    def __init__(self, config: IterBertPreTrainedConfig, graph_retriever_config):
         super(BertForGraphRetriever, self).__init__(config)
 
         self.graph_retriever_config = graph_retriever_config
-
-        self.bert = BertModel(config)
 
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
 
@@ -69,10 +69,11 @@ class BertForGraphRetriever(BertPreTrainedModel):
 
         # [CLS] vectors for Q-P pairs
         if split_chunk is None:
-            outputs = self.bert(input_ids=input_ids,
-                                attention_mask=attention_mask,
-                                token_type_ids=token_type_ids)
-            pooled_output = outputs[0][:, 0]
+            # outputs = self.bert(input_ids=input_ids,
+            #                     attention_mask=attention_mask,
+            #                     token_type_ids=token_type_ids)
+            # pooled_output = outputs[0][:, 0]
+            pooled_output = super().forward(input_ids, attention_mask=attention_mask, token_type_ids=token_type_ids)
 
         # an option to reduce GPU memory consumption at eval time, by splitting all the Q-P pairs into smaller chunks
         else:
@@ -92,10 +93,13 @@ class BertForGraphRetriever(BertPreTrainedModel):
                 # encoded_layers, pooled_output_ = self.bert(input_ids_, token_type_ids_, attention_mask_,
                 #                                            output_all_encoded_layers=False)
                 # encoded_layers = encoded_layers[:, 0]
-                outputs = self.bert(input_ids=input_ids_,
-                                    attention_mask=attention_mask_,
-                                    token_type_ids=token_type_ids_)
-                encoded_layers = outputs[0][:, 0]
+                # outputs = self.bert(input_ids=input_ids_,
+                #                     attention_mask=attention_mask_,
+                #                     token_type_ids=token_type_ids_)
+                # encoded_layers = outputs[0][:, 0]
+                encoded_layers = super().forward(input_ids_,
+                                                 attention_mask=attention_mask_,
+                                                 token_type_ids=token_type_ids_)
 
                 if start == 0:
                     pooled_output = encoded_layers
