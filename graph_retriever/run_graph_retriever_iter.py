@@ -14,16 +14,21 @@ from torch.utils.data import TensorDataset, DataLoader, RandomSampler, Sequentia
 from tqdm import tqdm
 from transformers import AutoTokenizer
 from transformers.optimization import AdamW, get_linear_schedule_with_warmup
+from oss_utils import torch_save_to_oss, load_buffer_from_oss
 
-try:
-    from modeling_graph_retriever_iter import BertForGraphRetriever
-    from utils import DataProcessor
-    from utils import convert_examples_to_features
-    from utils import save, load
-    from utils import GraphRetrieverConfig
-except ImportError:
-    from .modeling_graph_retriever_iter import BertForGraphRetriever
-    from .utils import DataProcessor, convert_examples_to_features, save, load, GraphRetrieverConfig
+import sys 
+parentdir = os.path.dirname(os.path.dirname(os.path.abspath(__file__))) 
+sys.path.insert(0,parentdir) 
+
+# try:
+from modeling_graph_retriever_iter import BertForGraphRetriever
+from utils import DataProcessor
+from utils import convert_examples_to_features
+from utils import save, load
+from utils import GraphRetrieverConfig
+# except ImportError:
+#     from .modeling_graph_retriever_iter import BertForGraphRetriever
+#     from .utils import DataProcessor, convert_examples_to_features, save, load, GraphRetrieverConfig
 
 logging.basicConfig(format='%(asctime)s - %(levelname)s - %(name)s -   %(message)s',
                     datefmt='%m/%d/%Y %H:%M:%S',
@@ -31,7 +36,7 @@ logging.basicConfig(format='%(asctime)s - %(levelname)s - %(name)s -   %(message
 logger = logging.getLogger(__name__)
 
 
-oss_features_cache_dir = '/bert_cached_features/'
+oss_features_cache_dir = 'bert_cached_features/'
 
 
 def main():
@@ -178,7 +183,8 @@ def main():
 
     parser.add_argument("--db_save_path", default=None, type=str,
                         help="File path to DB")
-
+    parser.add_argument("--fp16", default=False, action='store_true')
+    parser.add_argument("--fp16_opt_level", default="O1", type=str)
     parser.add_argument("--do_label", default=False, action='store_true',
                         help="For pre-processing features only.")
 
@@ -269,9 +275,18 @@ def main():
         _features_cache_file_name = f"features_{_cache_file_name}"
 
         # Load training examples
-        train_examples = processor.get_train_examples(graph_retriever_config)
-        train_features = convert_examples_to_features(
-            train_examples, args.max_seq_length, args.max_para_num, graph_retriever_config, tokenizer, train=True)
+        try:
+            train_examples = torch.load(load_buffer_from_oss(os.path.join(oss_features_cache_dir, _examples_cache_file_name)))
+            train_features = torch.load(load_buffer_from_oss(os.path.join(oss_features_cache_dir, _features_cache_file_name)))
+            logger.info(f"Pre-processed featrues are loaded from oss: "
+                        f"{os.path.join(oss_features_cache_dir, _features_cache_file_name)}")
+        except:
+            train_examples = processor.get_train_examples(graph_retriever_config)
+            train_features = convert_examples_to_features(
+                train_examples, args.max_seq_length, args.max_para_num, graph_retriever_config, tokenizer, train=True)
+            logger.info(f"Saving pre-processed features into oss: {oss_features_cache_dir}")
+            torch_save_to_oss(train_examples, os.path.join(oss_features_cache_dir, _examples_cache_file_name))
+            torch_save_to_oss(train_features, os.path.join(oss_features_cache_dir, _features_cache_file_name))
 
         # len(train_examples) and len(train_features) can be different, depedning on the redundant setting
         num_train_steps = int(
@@ -291,6 +306,12 @@ def main():
                           correct_bias=False)
         scheduler = get_linear_schedule_with_warmup(optimizer, int(t_total * args.warmup_proportion), t_total)
 
+        logger.info(optimizer)
+        if args.fp16:
+            from apex import amp
+
+            model, optimizer = amp.initialize(model, optimizer, opt_level=args.fp16_opt_level)
+        
         logger.info("***** Running training *****")
         logger.info("  Num examples = %d", len(train_features))
         logger.info("  Batch size = %d", args.train_batch_size)
@@ -327,7 +348,8 @@ def main():
                                            all_num_paragraphs, all_num_steps)
 
                 train_sampler = RandomSampler(train_data)
-                train_dataloader = DataLoader(train_data, sampler=train_sampler, batch_size=args.train_batch_size)
+                train_dataloader = DataLoader(train_data, sampler=train_sampler, batch_size=args.train_batch_size,
+                                              num_workers=8, pin_memory=True)
 
                 nb_tr_examples, nb_tr_steps = 0, 0
                 logger.info('Examples from ' + str(train_start_index) + ' to ' + str(train_end_index))
@@ -396,24 +418,33 @@ def main():
                         if args.gradient_accumulation_steps > 1:
                             loss = loss / args.gradient_accumulation_steps
 
-                        loss.backward()
+                        if args.fp16:
+                            with amp.scale_loss(loss, optimizer) as scaled_loss:
+                                scaled_loss.backward()
+                        else:
+                            loss.backward()
+
                         tr_loss += loss.item()
                         neg_start = neg_end + 1
 
                     nb_tr_examples += B
                     nb_tr_steps += 1
                     if (step + 1) % args.gradient_accumulation_steps == 0:
-                        torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-
-                        if global_step % 10 == 0:
-                            logger.info(f"Training loss: {tr_loss / global_step}\t"
-                                        f"Learning rate: {scheduler.get_lr()[0]}\t"
-                                        f"Global step: {global_step}")
+                        
+                        if args.fp16:
+                            torch.nn.utils.clip_grad_norm_(amp.master_params(optimizer), 1.0)
+                        else:
+                            torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
 
                         optimizer.step()
                         scheduler.step()
                         optimizer.zero_grad()
                         global_step += 1
+
+                        if global_step % 50 == 0:
+                            logger.info(f"Training loss: {tr_loss / global_step}\t"
+                                        f"Learning rate: {scheduler.get_lr()[0]}\t"
+                                        f"Global step: {global_step}")
 
                 chunk_index += 1
                 train_start_index = train_end_index + 1
@@ -422,6 +453,10 @@ def main():
                 if chunk_index == CHUNK_NUM // 2 or save_retry:
                     status = save(model, args.output_dir, str(epc + 0.5))
                     save_retry = (not status)
+
+                    model_to_save = model.module if hasattr(model, 'module') else model  # Only save the model it-self
+                    output_model_file = os.path.join(args.oss_cache_dir, "pytorch_model_" + str(epc + 0.5) + ".bin")
+                    torch_save_to_oss(model_to_save.state_dict(), output_model_file)
 
                 del all_input_ids
                 del all_input_masks
@@ -433,6 +468,9 @@ def main():
 
             # Save the model at the end of the epoch
             save(model, args.output_dir, str(epc + 1))
+            model_to_save = model.module if hasattr(model, 'module') else model  # Only save the model it-self
+            output_model_file = os.path.join(args.oss_cache_dir, "pytorch_model_" + str(epc + 1) + ".bin")
+            torch_save_to_oss(model_to_save, output_model_file)
 
             epc += 1
 

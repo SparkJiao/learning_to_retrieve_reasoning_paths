@@ -14,4 +14,4 @@ experiments
 oss_utils.py
 tar_exclude_file
 data
-scripts/pai*
+*pai.txt

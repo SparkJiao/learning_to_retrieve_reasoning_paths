@@ -113,7 +113,7 @@ class IterBertModelForRetrieval(IterBertModel):
         attention_mask = attention_mask.to(seq_output.dtype)
 
         q_hidden = self.query(cls_h, seq_output.unsqueeze(1), 1 - question_mask.unsqueeze(1),
-                              alighed=True, residual=False).view(batch, seq_output.size(-1))
+                              aligned=True, residual=False).view(batch, seq_output.size(-1))
 
         retrieve_q = self.retrieval_q(q_hidden)
         retrieve_k = self.retrieval_k(seq_output)
