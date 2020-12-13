@@ -260,9 +260,6 @@ def main():
 
         model.to(device)
 
-        if n_gpu > 1:
-            model = torch.nn.DataParallel(model)
-
         global_step = 0
         nb_tr_steps = 0
         tr_loss = 0
@@ -309,8 +306,12 @@ def main():
         logger.info(optimizer)
         if args.fp16:
             from apex import amp
+            amp.register_half_function("torch", "einsum")
 
             model, optimizer = amp.initialize(model, optimizer, opt_level=args.fp16_opt_level)
+
+        if n_gpu > 1:
+            model = torch.nn.DataParallel(model)
         
         logger.info("***** Running training *****")
         logger.info("  Num examples = %d", len(train_features))
