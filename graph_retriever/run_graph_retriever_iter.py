@@ -11,6 +11,7 @@ import random
 import numpy as np
 import torch
 from torch.utils.data import TensorDataset, DataLoader, RandomSampler, SequentialSampler
+from torch import distributed as dist
 from tqdm import tqdm
 from transformers import AutoTokenizer
 from transformers.optimization import AdamW, get_linear_schedule_with_warmup
@@ -18,9 +19,9 @@ from oss_utils import torch_save_to_oss, load_buffer_from_oss
 
 import sys 
 parentdir = os.path.dirname(os.path.dirname(os.path.abspath(__file__))) 
-sys.path.insert(0,parentdir) 
+sys.path.insert(0, parentdir)
 
-# try:
+
 from modeling_graph_retriever_iter import BertForGraphRetriever
 from utils import DataProcessor
 from utils import convert_examples_to_features
@@ -188,12 +189,33 @@ def main():
     parser.add_argument("--do_label", default=False, action='store_true',
                         help="For pre-processing features only.")
 
-    parser.add_argument("--oss_cache_dir", default=None, type=str, required=True)
+    parser.add_argument("--oss_cache_dir", default=None, type=str)
+    parser.add_argument("--cache_dir", default=None, type=str)
+    parser.add_argument("--dist", default=False, action='store_true', help='use distributed training.')
 
     args = parser.parse_args()
 
-    device = torch.device("cuda" if torch.cuda.is_available() and not args.no_cuda else "cpu")
-    n_gpu = torch.cuda.device_count()
+    if args.dist:
+        dist.init_process_group(backend='nccl')
+        print(f"local rank: {args.local_rank}")
+        print(f"global rank: {dist.get_rank()}")
+        print(f"world size: {dist.get_world_size()}")
+
+    if args.local_rank == -1 or args.no_cuda:
+        device = torch.device(
+            "cuda" if torch.cuda.is_available() and not args.no_cuda else "cpu")
+        n_gpu = torch.cuda.device_count()
+    else:
+        torch.cuda.set_device(args.local_rank)
+        device = torch.device("cuda", args.local_rank)
+        n_gpu = 1
+        # Initializes the distributed backend which will take care of sychronizing nodes/GPUs
+        dist.init_process_group(backend='nccl')
+
+    global_rank = torch.distributed.get_rank()
+    world_size = torch.distributed.get_world_size()
+    if world_size > 1:
+        args.local_rank = global_rank
 
     if args.gradient_accumulation_steps < 1:
         raise ValueError("Invalid gradient_accumulation_steps parameter: {}, should be >= 1".format(
@@ -212,7 +234,8 @@ def main():
 
         if os.path.exists(args.output_dir) and os.listdir(args.output_dir):
             raise ValueError("Output directory ({}) already exists and is not empty.".format(args.output_dir))
-        os.makedirs(args.output_dir, exist_ok=True)
+        if args.local_rank in [-1, 0]:
+            os.makedirs(args.output_dir, exist_ok=True)
 
     elif args.dev_file_path is not None:
         do_train = False
@@ -273,10 +296,15 @@ def main():
 
         # Load training examples
         try:
-            train_examples = torch.load(load_buffer_from_oss(os.path.join(oss_features_cache_dir, _examples_cache_file_name)))
-            train_features = torch.load(load_buffer_from_oss(os.path.join(oss_features_cache_dir, _features_cache_file_name)))
-            logger.info(f"Pre-processed featrues are loaded from oss: "
-                        f"{os.path.join(oss_features_cache_dir, _features_cache_file_name)}")
+            if os.path.exists(os.path.join(args.cache_dir, _features_cache_file_name)):
+                train_features = torch.load(os.path.join(args.cache_dir, _features_cache_file_name))
+            else:
+                # train_examples = torch.load(load_buffer_from_oss(os.path.join(oss_features_cache_dir,
+                #                                                               _examples_cache_file_name)))
+                train_features = torch.load(load_buffer_from_oss(os.path.join(oss_features_cache_dir,
+                                                                              _features_cache_file_name)))
+                logger.info(f"Pre-processed features are loaded from oss: "
+                            f"{os.path.join(oss_features_cache_dir, _features_cache_file_name)}")
         except:
             train_examples = processor.get_train_examples(graph_retriever_config)
             train_features = convert_examples_to_features(
@@ -297,10 +325,11 @@ def main():
             {'params': [p for n, p in param_optimizer if any(nd in n for nd in no_decay)], 'weight_decay': 0.0}
         ]
         t_total = num_train_steps
+        if args.local_rank != -1:
+            t_total = t_total // dist.get_world_size()
 
         optimizer = AdamW(optimizer_grouped_parameters,
-                          lr=args.learning_rate,
-                          correct_bias=False)
+                          lr=args.learning_rate)
         scheduler = get_linear_schedule_with_warmup(optimizer, int(t_total * args.warmup_proportion), t_total)
 
         logger.info(optimizer)
@@ -310,9 +339,22 @@ def main():
 
             model, optimizer = amp.initialize(model, optimizer, opt_level=args.fp16_opt_level)
 
+        if args.local_rank != -1:
+            if args.fp16_opt_level == 'O2':
+                try:
+                    import apex
+                    model = apex.parallel.DistributedDataParallel(
+                        model, delay_allreduce=True)
+                except ImportError:
+                    model = torch.nn.parallel.DistributedDataParallel(
+                        model, find_unused_parameters=True)
+            else:
+                model = torch.nn.parallel.DistributedDataParallel(
+                    model, find_unused_parameters=True)
+
         if n_gpu > 1:
             model = torch.nn.DataParallel(model)
-        
+
         logger.info("***** Running training *****")
         logger.info("  Num examples = %d", len(train_features))
         logger.info("  Batch size = %d", args.train_batch_size)
@@ -348,10 +390,17 @@ def main():
                 train_data = TensorDataset(all_input_ids, all_input_masks, all_segment_ids, all_output_masks,
                                            all_num_paragraphs, all_num_steps)
 
-                train_sampler = RandomSampler(train_data)
+                if args.local_rank != -1:
+                    train_sampler = torch.utils.data.DistributedSampler(train_data)
+                else:
+                    train_sampler = RandomSampler(train_data)
                 train_dataloader = DataLoader(train_data, sampler=train_sampler, batch_size=args.train_batch_size,
                                               num_workers=8, pin_memory=True)
 
+                if args.local_rank != -1:
+                    train_dataloader.sampler.set_epoch(epc)
+
+                tr_loss = 0
                 nb_tr_examples, nb_tr_steps = 0, 0
                 logger.info('Examples from ' + str(train_start_index) + ' to ' + str(train_end_index))
                 for step, batch in enumerate(tqdm(train_dataloader, desc="Iteration")):
@@ -451,10 +500,9 @@ def main():
                 train_start_index = train_end_index + 1
 
                 # Save the model at the half of the epoch
-                if chunk_index == CHUNK_NUM // 2 or save_retry:
+                if (chunk_index == CHUNK_NUM // 2 or save_retry) and args.local_rank in [-1, 0]:
                     status = save(model, args.output_dir, str(epc + 0.5))
                     save_retry = (not status)
-
                     model_to_save = model.module if hasattr(model, 'module') else model  # Only save the model it-self
                     output_model_file = os.path.join(args.oss_cache_dir, "pytorch_model_" + str(epc + 0.5) + ".bin")
                     torch_save_to_oss(model_to_save.state_dict(), output_model_file)
@@ -471,7 +519,7 @@ def main():
             save(model, args.output_dir, str(epc + 1))
             model_to_save = model.module if hasattr(model, 'module') else model  # Only save the model it-self
             output_model_file = os.path.join(args.oss_cache_dir, "pytorch_model_" + str(epc + 1) + ".bin")
-            torch_save_to_oss(model_to_save, output_model_file)
+            torch_save_to_oss(model_to_save.state_dict(), output_model_file)
 
             epc += 1
 
