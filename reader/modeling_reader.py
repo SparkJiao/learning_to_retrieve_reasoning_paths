@@ -107,7 +107,7 @@ class BertForQuestionAnsweringConfidence(BertPreTrainedModel):
             raise NotImplementedError()
 
 
-class IterBertForQuestionAnsweringConfigdence(IterBertModel):
+class IterBertForQuestionAnsweringConfidence(IterBertModel):
 
     def __init__(self, config: IterBertPreTrainedConfig, no_masking, lambda_scale=1.0):
         super().__init__(config)

@@ -6,10 +6,11 @@ import logging
 import os
 import random
 import sys
-from io import open
 
 import numpy as np
 import torch
+from rc_utils import convert_examples_to_features_yes_no, read_squad_examples, write_predictions_yes_no_no_empty_answer
+from torch import distributed as dist
 from torch.utils.data import (DataLoader, RandomSampler, SequentialSampler,
                               TensorDataset)
 from torch.utils.data.distributed import DistributedSampler
@@ -17,18 +18,10 @@ from tqdm import tqdm, trange
 from transformers import AutoTokenizer
 from transformers.optimization import AdamW, get_linear_schedule_with_warmup
 
-from rc_utils import convert_examples_to_features_yes_no, read_squad_examples, write_predictions_yes_no_no_empty_answer
-
-if sys.version_info[0] == 2:
-    import cPickle as pickle
-else:
-    import pickle
-
-import sys 
 parentdir = os.path.dirname(os.path.dirname(os.path.abspath(__file__))) 
 sys.path.insert(0, parentdir)
 
-from modeling_reader import IterBertForQuestionAnsweringConfigdence
+from modeling_reader import IterBertForQuestionAnsweringConfidence
 from oss_utils import torch_save_to_oss, load_buffer_from_oss
 
 
@@ -36,6 +29,8 @@ logger = logging.getLogger(__name__)
 
 RawResult = collections.namedtuple("RawResult",
                                    ["unique_id", "start_logits", "end_logits", "switch_logits"])
+
+oss_features_cache_dir = 'reader_bert_feature_cache_dir/'
 
 
 def main():
@@ -114,6 +109,7 @@ def main():
     parser.add_argument('--fp16',
                         action='store_true',
                         help="Whether to use 16-bit float precision instead of 32-bit")
+    parser.add_argument('--fp16_opt_level', default='O1', type=str)
     parser.add_argument('--loss_scale',
                         type=float, default=0,
                         help="Loss scaling to improve fp16 numeric stability. Only used when fp16 set to True.\n"
@@ -172,12 +168,12 @@ def main():
         device = torch.device("cuda", args.local_rank)
         n_gpu = 1
         # Initializes the distributed backend which will take care of
-        # sychronizing nodes/GPUs
-        torch.distributed.init_process_group(backend='nccl')
+        # synchronizing nodes/GPUs
+        dist.init_process_group(backend='nccl')
 
     if args.dist:
-        global_rank = torch.distributed.get_rank()
-        world_size = torch.distributed.get_world_size()
+        global_rank = dist.get_rank()
+        world_size = dist.get_world_size()
         if world_size > 1:
             args.local_rank = global_rank
 
@@ -219,85 +215,35 @@ def main():
     if not os.path.exists(args.output_dir):
         os.makedirs(args.output_dir)
 
-    train_examples = None
-    num_train_optimization_steps = None
-    if args.do_train:
-        train_examples = read_squad_examples(
-            input_file=args.train_file, is_training=True, version_2_with_negative=args.version_2_with_negative,
-            max_answer_len=args.max_answer_len, skip_negatives=args.skip_negatives)
-        num_train_optimization_steps = int(
-            len(train_examples) / args.train_batch_size / args.gradient_accumulation_steps) * args.num_train_epochs
-        if args.local_rank != -1:
-            num_train_optimization_steps = num_train_optimization_steps // torch.distributed.get_world_size()
-
     # Prepare model and tokenizer
     tokenizer = AutoTokenizer.from_pretrained(args.bert_model, do_lower_case=args.do_lower_case)
 
-    model = BertForQuestionAnsweringConfidence.from_pretrained(args.bert_model,
-                                                               num_labels=4,
-                                                               no_masking=args.no_masking,
-                                                               lambda_scale=args.lambda_scale)
+    model = IterBertForQuestionAnsweringConfidence.from_pretrained(args.bert_model,
+                                                                   num_labels=4,
+                                                                   no_masking=args.no_masking,
+                                                                   lambda_scale=args.lambda_scale)
 
     model.to(device)
-    if args.local_rank != -1:
-        try:
-            from apex.parallel import DistributedDataParallel as DDP
-        except ImportError:
-            raise ImportError(
-                "Please install apex from https://www.github.com/nvidia/apex to use distributed and fp16 training.")
 
-        model = DDP(model)
-    elif n_gpu > 1:
-        model = torch.nn.DataParallel(model)
-
-    # Prepare optimizer
-    param_optimizer = list(model.named_parameters())
-
-    # hack to remove pooler, which is not used
-    # thus it produce None grad that break apex
-    param_optimizer = [n for n in param_optimizer if 'pooler' not in n[0]]
-
-    no_decay = ['bias', 'LayerNorm.bias', 'LayerNorm.weight']
-    optimizer_grouped_parameters = [
-        {'params': [p for n, p in param_optimizer if not any(
-            nd in n for nd in no_decay)], 'weight_decay': 0.01},
-        {'params': [p for n, p in param_optimizer if any(
-            nd in n for nd in no_decay)], 'weight_decay': 0.0}
-    ]
-
-    if args.fp16:
-        try:
-            from apex.optimizers import FP16_Optimizer
-            from apex.optimizers import FusedAdam
-        except ImportError:
-            raise ImportError(
-                "Please install apex from https://www.github.com/nvidia/apex to use distributed and fp16 training.")
-
-        optimizer = FusedAdam(optimizer_grouped_parameters,
-                              lr=args.learning_rate,
-                              bias_correction=False,
-                              max_grad_norm=1.0)
-        if args.loss_scale == 0:
-            optimizer = FP16_Optimizer(optimizer, dynamic_loss_scale=True)
-        else:
-            optimizer = FP16_Optimizer(
-                optimizer, static_loss_scale=args.loss_scale)
-    else:
-        if args.do_train:
-            optimizer = BertAdam(optimizer_grouped_parameters,
-                                 lr=args.learning_rate,
-                                 warmup=args.warmup_proportion,
-                                 t_total=num_train_optimization_steps)
-
-    global_step = 0
+    train_examples = None
+    train_features = None
+    num_train_optimization_steps = None
     if args.do_train:
         cached_train_features_file = args.train_file + '_{0}_{1}_{2}_{3}'.format(
-            list(filter(None, args.bert_model.split('/'))).pop(), str(args.max_seq_length), str(args.doc_stride), str(args.max_query_length))
-        train_features = None
+            model.base_model_prefix, str(args.max_seq_length), str(args.doc_stride), str(args.max_query_length))
+        cached_train_features_file_name = cached_train_features_file.split('/')[-1]
+        _oss_feature_save_path = os.path.join(oss_features_cache_dir, cached_train_features_file_name)
+
         try:
-            with open(cached_train_features_file, "rb") as reader:
-                train_features = pickle.load(reader)
+            if args.cache_dir is not None and os.path.exists(os.path.join(args.cache_dir,
+                                                                          cached_train_features_file_name)):
+                train_features = torch.load(os.path.join(args.cache_dir, cached_train_features_file_name))
+            else:
+                train_features = torch.load(load_buffer_from_oss(_oss_feature_save_path))
         except:
+            train_examples = read_squad_examples(
+                input_file=args.train_file, is_training=True, version_2_with_negative=args.version_2_with_negative,
+                max_answer_len=args.max_answer_len, skip_negatives=args.skip_negatives)
             train_features = convert_examples_to_features_yes_no(
                 examples=train_examples,
                 tokenizer=tokenizer,
@@ -305,14 +251,58 @@ def main():
                 doc_stride=args.doc_stride,
                 max_query_length=args.max_query_length,
                 is_training=True)
-            if args.local_rank == -1 or torch.distributed.get_rank() == 0:
-                logger.info(
-                    "  Saving train features into cached file %s", cached_train_features_file)
-                with open(cached_train_features_file, "wb") as writer:
-                    pickle.dump(train_features, writer)
+            if args.local_rank in [-1, 0]:
+                torch_save_to_oss(train_features, _oss_feature_save_path)
+                logger.info(f"Saving train features into oss: {_oss_feature_save_path}")
 
+        num_train_optimization_steps = int(
+            len(train_features) / args.train_batch_size / args.gradient_accumulation_steps) * args.num_train_epochs
+
+    # Prepare optimizer
+    param_optimizer = list(model.named_parameters())
+
+    no_decay = ['bias', 'LayerNorm.bias', 'LayerNorm.weight', 'layer_norm']
+    optimizer_grouped_parameters = [
+        {'params': [p for n, p in param_optimizer if not any(
+            nd in n for nd in no_decay)], 'weight_decay': 0.01},
+        {'params': [p for n, p in param_optimizer if any(
+            nd in n for nd in no_decay)], 'weight_decay': 0.0}
+    ]
+    t_total = num_train_optimization_steps
+    if args.local_rank != -1:
+        t_total = t_total // dist.get_world_size()
+
+    optimizer = AdamW(optimizer_grouped_parameters, lr=args.learning_rate, betas=eval(args.adam_betas),
+                      eps=args.adam_epsilon)
+    scheduler = get_linear_schedule_with_warmup(
+        optimizer, int(t_total * args.warmup_proportion), num_train_optimization_steps)
+
+    if args.fp16:
+        from apex import amp
+
+        if args.loss_scale == 0:
+            model, optimizer = amp.initialize(model, optimizer, opt_level=args.fp16_opt_level)
+        else:
+            model, optimizer = amp.initialize(model, optimizer,
+                                              opt_level=args.fp16_opt_level, loss_scale=args.loss_scale)
+    if args.local_rank != -1:
+        if args.fp16_opt_level == 'O2':
+            try:
+                import apex
+                model = apex.parallel.DistributedDataParallel(model, delay_allreduce=True)
+            except ImportError:
+                model = torch.nn.parallel.DistributedDataParallel(model, find_unused_parameters=True)
+        else:
+            model = torch.nn.parallel.DistributedDataParallel(model, find_unused_parameters=True)
+
+    if n_gpu > 1:
+        model = torch.nn.DataParallel(model)
+
+    global_step = 0
+    if args.do_train:
         logger.info("***** Running training *****")
-        logger.info("  Num orig examples = %d", len(train_examples))
+        if train_examples:
+            logger.info("  Num orig examples = %d", len(train_examples))
         logger.info("  Num split examples = %d", len(train_features))
         logger.info("  Batch size = %d", args.train_batch_size)
         logger.info("  Num steps = %d", num_train_optimization_steps)
@@ -334,8 +324,8 @@ def main():
             train_sampler = RandomSampler(train_data)
         else:
             train_sampler = DistributedSampler(train_data)
-        train_dataloader = DataLoader(
-            train_data, sampler=train_sampler, batch_size=args.train_batch_size)
+        train_dataloader = DataLoader(train_data, sampler=train_sampler, batch_size=args.train_batch_size,
+                                      pin_memory=True, num_workers=4)
 
         if args.save_gran is not None:
             save_chunk, save_start = args.save_gran.split(',')
@@ -343,8 +333,12 @@ def main():
             save_start = int(save_start)
 
         model.train()
-        for _ in trange(int(args.num_train_epochs), desc="Epoch"):
-            for step, batch in enumerate(tqdm(train_dataloader, desc="Iteration", disable=args.local_rank not in [-1, 0])):
+        tr_loss = 0
+        for _epc in trange(int(args.num_train_epochs), desc="Epoch"):
+            if args.local_rank != -1:
+                train_dataloader.sampler.set_epoch(_epc)
+            for step, batch in enumerate(tqdm(train_dataloader, desc="Iteration",
+                                              disable=args.local_rank not in [-1, 0])):
                 if n_gpu == 1:
                     # multi-gpu does scattering it-self
                     batch = tuple(t.to(device) for t in batch)
@@ -357,15 +351,24 @@ def main():
                     loss = loss / args.gradient_accumulation_steps
 
                 if args.fp16:
-                    optimizer.backward(loss)
+                    with amp.scale_loss(loss, optimizer) as scaled_loss:
+                        scaled_loss.backward()
                 else:
-                    loss.mean().backward()
+                    loss.backward()
+
+                tr_loss += loss.item()
                 if (step + 1) % args.gradient_accumulation_steps == 0:
                     optimizer.step()
+                    scheduler.step()
                     optimizer.zero_grad()
                     global_step += 1
 
-                    if args.save_gran is not None:
+                    if global_step % 50 == 0:
+                        logger.info(f"Training loss: {tr_loss}\t"
+                                    f"Learning rate: {scheduler.get_lr()[0]}\t"
+                                    f"Global step: {global_step}")
+
+                    if args.save_gran is not None and args.local_rank in [-1, 0]:
                         if (global_step % save_chunk == 0) and (global_step // save_chunk >= save_start):
                             logger.info('Saving a checkpoint....')
                             output_dir_per_epoch = os.path.join(
@@ -376,59 +379,47 @@ def main():
                             model_to_save = model.module if hasattr(
                                 model, 'module') else model  # Only save the model it-self
 
-                            # If we save using the predefined names, we can load using
-                            # `from_pretrained`
-                            output_model_file = os.path.join(
-                                output_dir_per_epoch, WEIGHTS_NAME)
-                            output_config_file = os.path.join(
-                                output_dir_per_epoch, CONFIG_NAME)
-
-                            torch.save(model_to_save.state_dict(),
-                                       output_model_file)
-                            model_to_save.config.to_json_file(
-                                output_config_file)
-                            tokenizer.save_vocabulary(output_dir_per_epoch)
+                            if args.oss_cache_dir is not None:
+                                _oss_model_save_path = os.path.join(args.oss_cache_dir, f"{global_step}steps")
+                                torch_save_to_oss(model_to_save.state_dict(),
+                                                  _oss_model_save_path + "/pytorch_model.bin")
+                            model_to_save.save_pretrained(output_dir_per_epoch)
+                            tokenizer.save_pretrained(output_dir_per_epoch)
                             logger.info('Done')
 
-    if args.do_train and (args.local_rank == -1 or torch.distributed.get_rank() == 0):
+    if args.do_train and (args.local_rank == -1 or dist.get_rank() == 0):
         # Save a trained model, configuration and tokenizer
         model_to_save = model.module if hasattr(
             model, 'module') else model  # Only save the model it-self
 
-        # If we save using the predefined names, we can load using
-        # `from_pretrained`
-        output_model_file = os.path.join(args.output_dir, WEIGHTS_NAME)
-        output_config_file = os.path.join(args.output_dir, CONFIG_NAME)
-
-        torch.save(model_to_save.state_dict(), output_model_file)
-        model_to_save.config.to_json_file(output_config_file)
-        tokenizer.save_vocabulary(args.output_dir)
+        model_to_save.save_pretrained(args.output_dir)
+        tokenizer.save_pretrained(args.output_dir)
+        torch_save_to_oss(model_to_save, os.path.join(args.oss_cache_dir, "pytorch_model.bin"))
 
         # Load a trained model and vocabulary that you have fine-tuned
-        model = BertForQuestionAnsweringConfidence.from_pretrained(
+        model = IterBertForQuestionAnsweringConfidence.from_pretrained(
             args.output_dir,  num_labels=4, no_masking=args.no_masking)
-        tokenizer = BertTokenizer.from_pretrained(
-            args.output_dir, do_lower_case=args.do_lower_case)
+        tokenizer = AutoTokenizer.from_pretrained(args.output_dir, do_lower_case=args.do_lower_case)
 
     if args.do_train is False and args.do_predict is True:
-        model = BertForQuestionAnsweringConfidence.from_pretrained(
+        model = IterBertForQuestionAnsweringConfidence.from_pretrained(
             args.output_dir,  num_labels=4, no_masking=args.no_masking)
-        tokenizer = BertTokenizer.from_pretrained(
+        tokenizer = AutoTokenizer.from_pretrained(
             args.output_dir, do_lower_case=args.do_lower_case)
 
     elif args.do_train is True and args.do_predict is True:
-        model = BertForQuestionAnsweringConfidence.from_pretrained(
+        model = IterBertForQuestionAnsweringConfidence.from_pretrained(
             args.output_dir,  num_labels=4, no_masking=args.no_masking)
-        tokenizer = BertTokenizer.from_pretrained(
+        tokenizer = AutoTokenizer.from_pretrained(
             args.output_dir, do_lower_case=args.do_lower_case)
 
     else:
-        model = BertForQuestionAnsweringConfidence.from_pretrained(
+        model = IterBertForQuestionAnsweringConfidence.from_pretrained(
             args.bert_model,  num_labels=4, no_masking=args.no_masking, lambda_scale=args.lambda_scale)
 
     model.to(device)
 
-    if args.do_predict and (args.local_rank == -1 or torch.distributed.get_rank() == 0):
+    if args.do_predict and (args.local_rank == -1 or dist.get_rank() == 0):
         eval_examples = read_squad_examples(
             input_file=args.predict_file, is_training=False, version_2_with_negative=args.version_2_with_negative,
             max_answer_len=args.max_answer_length, skip_negatives=args.skip_negatives)
