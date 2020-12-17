@@ -6,6 +6,8 @@ import torch
 from transformers.modeling_bert import BertModel, BertPreTrainedModel
 from transformers.modeling_roberta import RobertaModel, RobertaPreTrainedModel, RobertaConfig
 
+from modules.bert_iter_models import IterBertPreTrainedConfig, IterBertModel
+
 
 class BERTLayerNorm(nn.Module):
     def __init__(self, config, variance_epsilon=1e-12):
@@ -65,6 +67,110 @@ class BertForQuestionAnsweringConfidence(BertPreTrainedModel):
         end_logits = end_logits.squeeze(-1)
         # Calculate the class logits
         pooled_output = self.dropout(pooled_output)
+        switch_logits = self.qa_classifier(pooled_output)
+
+        if start_positions is not None and end_positions is not None and switch_list is not None:
+            # If we are on multi-GPU, split add a dimension
+            if len(start_positions.size()) > 1:
+                start_positions = start_positions.squeeze(-1)
+            if len(end_positions.size()) > 1:
+                end_positions = end_positions.squeeze(-1)
+
+            ignored_index = start_logits.size(1)
+            start_positions.clamp_(0, ignored_index)
+            end_positions.clamp_(0, ignored_index)
+            loss_fct = CrossEntropyLoss(
+                ignore_index=ignored_index, reduce=False)
+
+            # if no_masking is True, we do not mask the no-answer examples'
+            # span losses.
+            if self.no_masking is True:
+                start_losses = loss_fct(start_logits, start_positions)
+                end_losses = loss_fct(end_logits, end_positions)
+
+            else:
+                # You care about the span only when switch is 0
+                span_mask = (switch_list == 0).type(torch.FloatTensor).cuda()
+                start_losses = loss_fct(
+                    start_logits, start_positions) * span_mask
+                end_losses = loss_fct(end_logits, end_positions) * span_mask
+
+            switch_losses = loss_fct(switch_logits, switch_list)
+            assert len(start_losses) == len(
+                end_losses) == len(switch_losses)
+            return self.lambda_scale * (start_losses + end_losses) + switch_losses
+
+        elif start_positions is None or end_positions is None or switch_list is None:
+            return start_logits, end_logits, switch_logits
+
+        else:
+            raise NotImplementedError()
+
+
+class IterBertForQuestionAnsweringConfigdence(IterBertModel):
+
+    def __init__(self, config: IterBertPreTrainedConfig, no_masking, lambda_scale=1.0):
+        super().__init__(config)
+
+        self.num_labels = config.num_labels
+        
+        self.no_masking = no_masking
+        self.dropout = nn.Dropout(config.hidden_dropout_prob)
+        
+        self.retrieval_q = nn.Linear(config.hidden_size, config.hidden_size)
+        self.retrieval_k = nn.Linear(config.hidden_size, config.hidden_size)
+
+        self.retrieval_o = nn.Sequential(
+            nn.Linear(config.hidden_size * 2, config.hidden_size),
+            nn.Tanh()
+        )
+        
+        self.qa_outputs = nn.Linear(config.hidden_size, 2 * config.hidden_size)
+        # self.qa_outputs = nn.Linear(config.hidden_size, 2)  # [N, L, H] => [N, L, 2]
+        self.qa_classifier = nn.Linear(config.hidden_size, self.num_labels)  # [N, H] => [N, n_class]
+        self.lambda_scale = lambda_scale
+
+        self.init_weights()
+
+    def forward(self, input_ids, token_type_ids, attention_mask,
+                start_positions=None, end_positions=None, switch_list=None):
+        
+        batch, seq_len = input_ids.size()
+
+        # `token_type_ids`: [0,0,0,1,1,1,1,0,0,0]
+        # `attention_mask`: [1,1,1,1,1,1,1,0,0,0]
+        # `1` for true token and `0` for mask
+        question_mask = (1 - token_type_ids) * attention_mask
+        passage_mask = token_type_ids * attention_mask
+
+        seq_output = self.bert(input_ids=input_ids,
+                               attention_mask=attention_mask,
+                               token_type_ids=token_type_ids)[0]
+
+        cls_h = seq_output[:, :1]
+        question_mask = question_mask.to(seq_output.dtype)
+        passage_mask = passage_mask.to(seq_output.dtype)
+        attention_mask = attention_mask.to(seq_output.dtype)
+
+        q_hidden = self.query(cls_h, seq_output.unsqueeze(1), 1 - question_mask.unsqueeze(1),
+                              aligned=True, residual=False).view(batch, seq_output.size(-1))
+
+        retrieve_q = self.retrieval_q(q_hidden)
+        retrieve_k = self.retrieval_k(seq_output)
+        retrieve_s = torch.einsum("bh,bsh->bs", retrieve_q, retrieve_k)
+        retrieve_a = torch.softmax(retrieve_s + (1 - passage_mask) * -10000.0, dim=1)
+        retrieve_o = self.dropout(self.retrieval_o(torch.cat([
+            q_hidden, torch.einsum("bs,bsh->bh", retrieve_a, seq_output)
+        ], dim=-1)))
+
+        # Calculate the sequence logits
+        bilinear_q = self.qa_outputs(q_hidden).view(batch, 2, q_hidden.size(-1))
+        logits = torch.einsum("bih,bjh->bji", bilinear_q, seq_output)
+        start_logits, end_logits = logits.split(1, dim=-1)
+        start_logits = start_logits.squeeze(-1)
+        end_logits = end_logits.squeeze(-1)
+        # Calculate the class logits
+        pooled_output = self.dropout(retrieve_o)
         switch_logits = self.qa_classifier(pooled_output)
 
         if start_positions is not None and end_positions is not None and switch_list is not None:

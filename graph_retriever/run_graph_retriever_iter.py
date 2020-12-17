@@ -101,6 +101,7 @@ def main():
                         type=int,
                         default=1,
                         help="Number of updates steps to accumulate before performing a backward/update pass.")
+    parser.add_argument('--local_rank', default=-1, type=int)
 
     # RNN graph retriever-specific parameters
     parser.add_argument("--example_limit",
@@ -202,8 +203,7 @@ def main():
         print(f"world size: {dist.get_world_size()}")
 
     if args.local_rank == -1 or args.no_cuda:
-        device = torch.device(
-            "cuda" if torch.cuda.is_available() and not args.no_cuda else "cpu")
+        device = torch.device("cuda" if torch.cuda.is_available() and not args.no_cuda else "cpu")
         n_gpu = torch.cuda.device_count()
     else:
         torch.cuda.set_device(args.local_rank)
@@ -212,10 +212,11 @@ def main():
         # Initializes the distributed backend which will take care of sychronizing nodes/GPUs
         dist.init_process_group(backend='nccl')
 
-    global_rank = torch.distributed.get_rank()
-    world_size = torch.distributed.get_world_size()
-    if world_size > 1:
-        args.local_rank = global_rank
+    if args.dist:
+        global_rank = torch.distributed.get_rank()
+        world_size = torch.distributed.get_world_size()
+        if world_size > 1:
+            args.local_rank = global_rank
 
     if args.gradient_accumulation_steps < 1:
         raise ValueError("Invalid gradient_accumulation_steps parameter: {}, should be >= 1".format(
@@ -271,6 +272,7 @@ def main():
                                                   db_save_path=args.db_save_path)
 
     logger.info(graph_retriever_config)
+    logger.info(args)
 
     tokenizer = AutoTokenizer.from_pretrained(args.bert_model)
 
@@ -295,8 +297,9 @@ def main():
         _features_cache_file_name = f"features_{_cache_file_name}"
 
         # Load training examples
+        logger.info(f"Loading training examples and features.")
         try:
-            if os.path.exists(os.path.join(args.cache_dir, _features_cache_file_name)):
+            if args.cache_dir is not None and os.path.exists(os.path.join(args.cache_dir, _features_cache_file_name)):
                 train_features = torch.load(os.path.join(args.cache_dir, _features_cache_file_name))
             else:
                 # train_examples = torch.load(load_buffer_from_oss(os.path.join(oss_features_cache_dir,
@@ -335,7 +338,7 @@ def main():
         logger.info(optimizer)
         if args.fp16:
             from apex import amp
-            amp.register_half_function("torch", "einsum")
+            amp.register_half_function(torch, "einsum")
 
             model, optimizer = amp.initialize(model, optimizer, opt_level=args.fp16_opt_level)
 
@@ -343,14 +346,11 @@ def main():
             if args.fp16_opt_level == 'O2':
                 try:
                     import apex
-                    model = apex.parallel.DistributedDataParallel(
-                        model, delay_allreduce=True)
+                    model = apex.parallel.DistributedDataParallel(model, delay_allreduce=True)
                 except ImportError:
-                    model = torch.nn.parallel.DistributedDataParallel(
-                        model, find_unused_parameters=True)
+                    model = torch.nn.parallel.DistributedDataParallel(model, find_unused_parameters=True)
             else:
-                model = torch.nn.parallel.DistributedDataParallel(
-                    model, find_unused_parameters=True)
+                model = torch.nn.parallel.DistributedDataParallel(model, find_unused_parameters=True)
 
         if n_gpu > 1:
             model = torch.nn.DataParallel(model)
@@ -516,10 +516,11 @@ def main():
                 del train_data
 
             # Save the model at the end of the epoch
-            save(model, args.output_dir, str(epc + 1))
-            model_to_save = model.module if hasattr(model, 'module') else model  # Only save the model it-self
-            output_model_file = os.path.join(args.oss_cache_dir, "pytorch_model_" + str(epc + 1) + ".bin")
-            torch_save_to_oss(model_to_save.state_dict(), output_model_file)
+            if args.local_rank in [-1, 0]:
+                save(model, args.output_dir, str(epc + 1))
+                model_to_save = model.module if hasattr(model, 'module') else model  # Only save the model it-self
+                output_model_file = os.path.join(args.oss_cache_dir, "pytorch_model_" + str(epc + 1) + ".bin")
+                torch_save_to_oss(model_to_save.state_dict(), output_model_file)
 
             epc += 1
 
@@ -539,7 +540,11 @@ def main():
     else:
         tfidf_retriever = None
 
-    model_state_dict = load(args.output_dir, args.model_suffix)
+    if args.oss_cache_dir is not None:
+        file_name = 'pytorch_model_' + args.model_suffix + '.bin'
+        model_state_dict = torch.load(load_buffer_from_oss(os.path.join(args.oss_cache_dir, file_name)))
+    else:
+        model_state_dict = load(args.output_dir, args.model_suffix)
 
     model = BertForGraphRetriever.from_pretrained(args.bert_model, state_dict=model_state_dict,
                                                   graph_retriever_config=graph_retriever_config)

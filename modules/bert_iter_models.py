@@ -118,6 +118,7 @@ class IterBertModelForRetrieval(IterBertModel):
         retrieve_q = self.retrieval_q(q_hidden)
         retrieve_k = self.retrieval_k(seq_output)
         retrieve_s = torch.einsum("bh,bsh->bs", retrieve_q, retrieve_k)
+        # TODO: attend to all tokens? or only passage tokens?
         retrieve_a = torch.softmax(retrieve_s + (1 - attention_mask) * -10000.0, dim=1)
         retrieve_o = self.iter_bert_dropout(self.retrieval_o(torch.cat([
             q_hidden, torch.einsum("bs,bsh->bh", retrieve_a, seq_output)
