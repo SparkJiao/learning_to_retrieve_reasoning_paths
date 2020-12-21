@@ -287,8 +287,6 @@ def main():
         model.to(device)
 
         global_step = 0
-        nb_tr_steps = 0
-        tr_loss = 0
 
         POSITIVE = 1.0
         NEGATIVE = 0.0
@@ -373,7 +371,12 @@ def main():
         epc = 0
         # test
         if args.local_rank in [-1, 0]:
-            torch_save_to_oss(amp.state_dict(), os.path.join(args.oss_cache_dir, "amp_0.pt"))
+            amp_file = os.path.join(args.oss_cache_dir, f"amp_{global_step}.bin")
+            torch_save_to_oss(amp.state_dict(), amp_file)
+            optimizer_file = os.path.join(args.oss_cache_dir, f"optimizer_{global_step}.pt")
+            torch_save_to_oss(optimizer.state_dict(), optimizer_file)
+            scheduler_file = os.path.join(args.oss_cache_dir, f"scheduler_{global_step}.pt")
+            torch_save_to_oss(scheduler.state_dict(), scheduler_file)
         
         for _ in range(int(args.num_train_epochs)):
             logger.info('Epoch ' + str(epc + 1))
@@ -414,7 +417,6 @@ def main():
                     train_dataloader.sampler.set_epoch(epc)
 
                 tr_loss = 0
-                nb_tr_examples, nb_tr_steps = 0, 0
                 logger.info('Examples from ' + str(train_start_index) + ' to ' + str(train_end_index))
                 for step, batch in enumerate(tqdm(train_dataloader, desc="Iteration")):
                     input_masks = batch[1]
@@ -495,8 +497,6 @@ def main():
                         del output_masks_
                         del target_
 
-                    nb_tr_examples += B
-                    nb_tr_steps += 1
                     if (step + 1) % args.gradient_accumulation_steps == 0:
                         
                         if args.fp16:
@@ -516,7 +516,7 @@ def main():
                                         f"Global step: {global_step}")
 
                         if global_step % args.save_steps == 0 and args.local_rank in [-1, 0]:
-                            model_to_save = model.module if hasattr(model, 'module') else model  # Only save the model it-self
+                            model_to_save = model.module if hasattr(model, 'module') else model
                             output_model_file = os.path.join(args.oss_cache_dir, f"pytorch_model_{global_step}.bin")
                             torch_save_to_oss(model_to_save.state_dict(), output_model_file)
 
@@ -529,12 +529,12 @@ def main():
 
                             logger.info(f"checkpoint of step {global_step} is saved to oss.")
 
-
                     del input_ids
                     del input_masks
                     del segment_ids
                     del output_masks
                     del target
+                    del batch
                 
                 chunk_index += 1
                 train_start_index = train_end_index + 1
