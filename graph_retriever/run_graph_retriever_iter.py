@@ -193,6 +193,7 @@ def main():
     parser.add_argument("--oss_cache_dir", default=None, type=str)
     parser.add_argument("--cache_dir", default=None, type=str)
     parser.add_argument("--dist", default=False, action='store_true', help='use distributed training.')
+    parser.add_argument("--save_steps", default=5000, type=int)
 
     args = parser.parse_args()
 
@@ -370,6 +371,10 @@ def main():
 
         model.train()
         epc = 0
+        # test
+        if args.local_rank in [-1, 0]:
+            torch_save_to_oss(amp.state_dict(), os.path.join(args.oss_cache_dir, "amp_0.pt"))
+        
         for _ in range(int(args.num_train_epochs)):
             logger.info('Epoch ' + str(epc + 1))
 
@@ -432,8 +437,7 @@ def main():
                     segment_ids = segment_ids[:, :batch_max_para_num, :batch_max_len]
                     output_masks = output_masks[:, :batch_max_steps, :batch_max_para_num + 1]  # 1 for EOE
 
-                    target = torch.FloatTensor(output_masks.size()).fill_(
-                        NEGATIVE)  # (B, NUM_STEPS, |P|+1) <- 1 for EOE
+                    target = torch.FloatTensor(output_masks.size()).fill_(NEGATIVE)  # (B, NUM_STEPS, |P|+1) <- 1 for EOE
                     for i in range(B):
                         output_masks[i, :num_steps[i], -1] = 1.0  # for EOE
 
@@ -502,13 +506,29 @@ def main():
 
                         optimizer.step()
                         scheduler.step()
-                        optimizer.zero_grad()
+                        # optimizer.zero_grad()
+                        model.zero_grad()
                         global_step += 1
 
                         if global_step % 50 == 0:
                             logger.info(f"Training loss: {tr_loss / global_step}\t"
                                         f"Learning rate: {scheduler.get_lr()[0]}\t"
                                         f"Global step: {global_step}")
+
+                        if global_step % args.save_steps == 0 and args.local_rank in [-1, 0]:
+                            model_to_save = model.module if hasattr(model, 'module') else model  # Only save the model it-self
+                            output_model_file = os.path.join(args.oss_cache_dir, f"pytorch_model_{global_step}.bin")
+                            torch_save_to_oss(model_to_save.state_dict(), output_model_file)
+
+                            amp_file = os.path.join(args.oss_cache_dir, f"amp_{global_step}.bin")
+                            torch_save_to_oss(amp.state_dict(), amp_file)
+                            optimizer_file = os.path.join(args.oss_cache_dir, f"optimizer_{global_step}.pt")
+                            torch_save_to_oss(optimizer.state_dict(), optimizer_file)
+                            scheduler_file = os.path.join(args.oss_cache_dir, f"scheduler_{global_step}.pt")
+                            torch_save_to_oss(scheduler.state_dict(), scheduler_file)
+
+                            logger.info(f"checkpoint of step {global_step} is saved to oss.")
+
 
                     del input_ids
                     del input_masks
@@ -523,9 +543,6 @@ def main():
                 if (chunk_index == CHUNK_NUM // 2 or save_retry) and args.local_rank in [-1, 0]:
                     status = save(model, args.output_dir, str(epc + 0.5))
                     save_retry = (not status)
-                    model_to_save = model.module if hasattr(model, 'module') else model  # Only save the model it-self
-                    output_model_file = os.path.join(args.oss_cache_dir, "pytorch_model_" + str(epc + 0.5) + ".bin")
-                    torch_save_to_oss(model_to_save.state_dict(), output_model_file)
                 
                 del all_input_ids
                 del all_input_masks

@@ -230,16 +230,19 @@ def main():
     train_features = None
     num_train_optimization_steps = None
     if args.do_train:
-        cached_train_features_file = args.train_file + '_{0}_{1}_{2}_{3}'.format(
-            model.base_model_prefix, str(args.max_seq_length), str(args.doc_stride), str(args.max_query_length))
+        cached_train_features_file = args.train_file + '_{0}_{1}_{2}_{3}_{4}'.format(
+            model.base_model_prefix, str(args.max_seq_length), str(args.doc_stride), str(args.max_query_length),
+            tokenizer.do_lower_case)
         cached_train_features_file_name = cached_train_features_file.split('/')[-1]
         _oss_feature_save_path = os.path.join(oss_features_cache_dir, cached_train_features_file_name)
 
         try:
             if args.cache_dir is not None and os.path.exists(os.path.join(args.cache_dir,
                                                                           cached_train_features_file_name)):
+                logger.info(f"Loading pre-processed features from {os.path.join(args.cache_dir, cached_train_features_file_name)}")
                 train_features = torch.load(os.path.join(args.cache_dir, cached_train_features_file_name))
             else:
+                logger.info(f"Loading pre-processed features from oss: {_oss_feature_save_path}")
                 train_features = torch.load(load_buffer_from_oss(_oss_feature_save_path))
         except:
             train_examples = read_squad_examples(
