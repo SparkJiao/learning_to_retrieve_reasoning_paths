@@ -18,12 +18,11 @@ from tqdm import tqdm, trange
 from transformers import AutoTokenizer
 from transformers.optimization import AdamW, get_linear_schedule_with_warmup
 
-parentdir = os.path.dirname(os.path.dirname(os.path.abspath(__file__))) 
-sys.path.insert(0, parentdir)
+parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, parent_dir)
 
 from modeling_reader import BertForQuestionAnsweringConfidence
 from oss_utils import torch_save_to_oss, load_buffer_from_oss
-
 
 logger = logging.getLogger(__name__)
 
@@ -39,8 +38,8 @@ def main():
     # Required parameters
     parser.add_argument("--bert_model", default=None, type=str, required=True,
                         help="Bert pre-trained model selected in the list: bert-base-uncased, "
-                        "bert-large-uncased, bert-base-cased, bert-large-cased, bert-base-multilingual-uncased, "
-                        "bert-base-multilingual-cased, bert-base-chinese.")
+                             "bert-large-uncased, bert-base-cased, bert-large-cased, bert-base-multilingual-uncased, "
+                             "bert-base-multilingual-cased, bert-base-chinese.")
     parser.add_argument("--output_dir", default=None, type=str, required=True,
                         help="The output directory where the model checkpoints and predictions will be written.")
 
@@ -146,11 +145,12 @@ def main():
     # Save checkpoints more
     parser.add_argument('--save_gran',
                         type=str, default="10,3",
-                        help='"10,5" means saving a checkpoint every 1/10 of the total updates, but start saving from the 5th attempt')
+                        help='"10,5" means saving a checkpoint every 1/10 of the total updates,'
+                             'but start saving from the 5th attempt')
     parser.add_argument('--oss_cache_dir', default=None, type=str)
     parser.add_argument('--cache_dir', default=None, type=str)
     parser.add_argument('--dist', default=False, action='store_true')
-    
+
     args = parser.parse_args()
     print(args)
 
@@ -406,23 +406,23 @@ def main():
         torch_save_to_oss(model_to_save.state_dict(), os.path.join(args.oss_cache_dir, "pytorch_model.bin"))
 
         # Load a trained model and vocabulary that you have fine-tuned
-        model = BertForQuestionAnsweringConfidence.from_pretrained(
-            args.output_dir,  num_labels=4, no_masking=args.no_masking)
-        tokenizer = AutoTokenizer.from_pretrained(args.output_dir, do_lower_case=args.do_lower_case)
+        # model = BertForQuestionAnsweringConfidence.from_pretrained(
+        #     args.output_dir, num_labels=4, no_masking=args.no_masking)
+        # tokenizer = AutoTokenizer.from_pretrained(args.output_dir, do_lower_case=args.do_lower_case)
 
     if args.do_train is False and args.do_predict is True:
         model = BertForQuestionAnsweringConfidence.from_pretrained(
-            args.output_dir,  num_labels=4, no_masking=args.no_masking)
+            args.output_dir, num_labels=4, no_masking=args.no_masking)
         tokenizer = AutoTokenizer.from_pretrained(
             args.output_dir, do_lower_case=args.do_lower_case)
     elif args.do_train is True and args.do_predict is True:
         model = BertForQuestionAnsweringConfidence.from_pretrained(
-            args.output_dir,  num_labels=4, no_masking=args.no_masking)
+            args.output_dir, num_labels=4, no_masking=args.no_masking)
         tokenizer = AutoTokenizer.from_pretrained(
             args.output_dir, do_lower_case=args.do_lower_case)
     else:
         model = BertForQuestionAnsweringConfidence.from_pretrained(
-            args.bert_model,  num_labels=4, no_masking=args.no_masking, lambda_scale=args.lambda_scale)
+            args.bert_model, num_labels=4, no_masking=args.no_masking, lambda_scale=args.lambda_scale)
 
     model.to(device)
 
@@ -461,7 +461,8 @@ def main():
         model.eval()
         all_results = []
         logger.info("Start evaluating")
-        for input_ids, input_mask, segment_ids, example_indices in tqdm(eval_dataloader, desc="Evaluating", disable=args.local_rank not in [-1, 0]):
+        for input_ids, input_mask, segment_ids, example_indices in tqdm(eval_dataloader, desc="Evaluating",
+                                                                        disable=args.local_rank not in [-1, 0]):
             if len(all_results) % 1000 == 0:
                 logger.info("Processing example: %d" % (len(all_results)))
             input_ids = input_ids.to(device)
