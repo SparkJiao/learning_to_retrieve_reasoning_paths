@@ -21,7 +21,7 @@ from transformers.optimization import AdamW, get_linear_schedule_with_warmup
 parentdir = os.path.dirname(os.path.dirname(os.path.abspath(__file__))) 
 sys.path.insert(0, parentdir)
 
-from modeling_reader import IterBertForQuestionAnsweringConfidence, BertForQuestionAnsweringConfidence
+from modeling_reader import BertForQuestionAnsweringConfidence
 from oss_utils import torch_save_to_oss, load_buffer_from_oss
 
 
@@ -219,10 +219,10 @@ def main():
     # Prepare model and tokenizer
     tokenizer = AutoTokenizer.from_pretrained(args.bert_model, do_lower_case=args.do_lower_case)
 
-    model = IterBertForQuestionAnsweringConfidence.from_pretrained(args.bert_model,
-                                                                   num_labels=4,
-                                                                   no_masking=args.no_masking,
-                                                                   lambda_scale=args.lambda_scale)
+    model = BertForQuestionAnsweringConfidence.from_pretrained(args.bert_model,
+                                                               num_labels=4,
+                                                               no_masking=args.no_masking,
+                                                               lambda_scale=args.lambda_scale)
 
     model.to(device)
 
@@ -406,22 +406,22 @@ def main():
         torch_save_to_oss(model_to_save.state_dict(), os.path.join(args.oss_cache_dir, "pytorch_model.bin"))
 
         # Load a trained model and vocabulary that you have fine-tuned
-        model = IterBertForQuestionAnsweringConfidence.from_pretrained(
+        model = BertForQuestionAnsweringConfidence.from_pretrained(
             args.output_dir,  num_labels=4, no_masking=args.no_masking)
         tokenizer = AutoTokenizer.from_pretrained(args.output_dir, do_lower_case=args.do_lower_case)
 
     if args.do_train is False and args.do_predict is True:
-        model = IterBertForQuestionAnsweringConfidence.from_pretrained(
+        model = BertForQuestionAnsweringConfidence.from_pretrained(
             args.output_dir,  num_labels=4, no_masking=args.no_masking)
         tokenizer = AutoTokenizer.from_pretrained(
             args.output_dir, do_lower_case=args.do_lower_case)
     elif args.do_train is True and args.do_predict is True:
-        model = IterBertForQuestionAnsweringConfidence.from_pretrained(
+        model = BertForQuestionAnsweringConfidence.from_pretrained(
             args.output_dir,  num_labels=4, no_masking=args.no_masking)
         tokenizer = AutoTokenizer.from_pretrained(
             args.output_dir, do_lower_case=args.do_lower_case)
     else:
-        model = IterBertForQuestionAnsweringConfidence.from_pretrained(
+        model = BertForQuestionAnsweringConfidence.from_pretrained(
             args.bert_model,  num_labels=4, no_masking=args.no_masking, lambda_scale=args.lambda_scale)
 
     model.to(device)

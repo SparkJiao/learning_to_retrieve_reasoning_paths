@@ -15,3 +15,5 @@ oss_utils.py
 tar_exclude_file
 data
 *pai.txt
+evaluation_results
+models

@@ -99,6 +99,7 @@ class IterBertModelForRetrieval(IterBertModel):
         batch, seq_len = input_ids.size()
 
         # `token_type_ids`: [0,0,0,1,1,1,1,0,0,0]
+        # `attention_mask`: [1,1,1,1,1,1,1,0,0,0]
         # `1` for true token and `0` for mask
         question_mask = (1 - token_type_ids) * attention_mask
         passage_mask = token_type_ids * attention_mask
@@ -119,7 +120,8 @@ class IterBertModelForRetrieval(IterBertModel):
         retrieve_k = self.retrieval_k(seq_output)
         retrieve_s = torch.einsum("bh,bsh->bs", retrieve_q, retrieve_k)
         # TODO: attend to all tokens? or only passage tokens?
-        retrieve_a = torch.softmax(retrieve_s + (1 - attention_mask) * -10000.0, dim=1)
+        # retrieve_a = torch.softmax(retrieve_s + (1 - attention_mask) * -10000.0, dim=1)
+        retrieve_a = torch.softmax(retrieve_s + (1 - passage_mask) * -10000.0, dim=1)
         retrieve_o = self.iter_bert_dropout(self.retrieval_o(torch.cat([
             q_hidden, torch.einsum("bs,bsh->bh", retrieve_a, seq_output)
         ], dim=-1)))

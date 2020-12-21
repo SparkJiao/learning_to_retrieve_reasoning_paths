@@ -300,6 +300,7 @@ def main():
         logger.info(f"Loading training examples and features.")
         try:
             if args.cache_dir is not None and os.path.exists(os.path.join(args.cache_dir, _features_cache_file_name)):
+                logger.info(f"Loading pre-processed features from {os.path.join(args.cache_dir, _features_cache_file_name)}")
                 train_features = torch.load(os.path.join(args.cache_dir, _features_cache_file_name))
             else:
                 # train_examples = torch.load(load_buffer_from_oss(os.path.join(oss_features_cache_dir,
@@ -357,8 +358,15 @@ def main():
 
         logger.info("***** Running training *****")
         logger.info("  Num examples = %d", len(train_features))
-        logger.info("  Batch size = %d", args.train_batch_size)
-        logger.info("  Num steps = %d", num_train_steps)
+        logger.info("  Instantaneous batch size per GPU = %d", args.train_batch_size)
+        logger.info(
+            "  Total train batch size (w. parallel, distributed & accumulation) = %d",
+            args.train_batch_size
+            * args.gradient_accumulation_steps
+            * (dist.get_world_size() if args.local_rank != -1 else 1),
+        )
+        logger.info("  Gradient Accumulation steps = %d", args.gradient_accumulation_steps)
+        logger.info("  Total optimization steps = %d", t_total)
 
         model.train()
         epc = 0
@@ -413,10 +421,10 @@ def main():
                     num_steps = batch[5]
                     batch_max_steps = num_steps.max().item()
 
-                    output_masks_cpu = (batch[3])[:, :batch_max_steps, :batch_max_para_num + 1]
+                    # output_masks_cpu = (batch[3])[:, :batch_max_steps, :batch_max_para_num + 1]
 
                     batch = tuple(t.to(device) for t in batch)
-                    input_ids, input_masks, segment_ids, output_masks, _, __ = batch
+                    input_ids, input_masks, segment_ids, output_masks, _, _ = batch
                     B = input_ids.size(0)
 
                     input_ids = input_ids[:, :batch_max_para_num, :batch_max_len]
@@ -477,6 +485,12 @@ def main():
                         tr_loss += loss.item()
                         neg_start = neg_end + 1
 
+                        del input_ids_
+                        del input_masks_
+                        del segment_ids_
+                        del output_masks_
+                        del target_
+
                     nb_tr_examples += B
                     nb_tr_steps += 1
                     if (step + 1) % args.gradient_accumulation_steps == 0:
@@ -496,6 +510,12 @@ def main():
                                         f"Learning rate: {scheduler.get_lr()[0]}\t"
                                         f"Global step: {global_step}")
 
+                    del input_ids
+                    del input_masks
+                    del segment_ids
+                    del output_masks
+                    del target
+                
                 chunk_index += 1
                 train_start_index = train_end_index + 1
 
@@ -506,14 +526,17 @@ def main():
                     model_to_save = model.module if hasattr(model, 'module') else model  # Only save the model it-self
                     output_model_file = os.path.join(args.oss_cache_dir, "pytorch_model_" + str(epc + 0.5) + ".bin")
                     torch_save_to_oss(model_to_save.state_dict(), output_model_file)
-
+                
                 del all_input_ids
                 del all_input_masks
                 del all_segment_ids
                 del all_output_masks
                 del all_num_paragraphs
                 del all_num_steps
+                del train_dataloader
+                del train_sampler
                 del train_data
+                del train_features_
 
             # Save the model at the end of the epoch
             if args.local_rank in [-1, 0]:

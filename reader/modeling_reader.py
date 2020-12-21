@@ -80,7 +80,7 @@ class BertForQuestionAnsweringConfidence(BertPreTrainedModel):
             start_positions.clamp_(0, ignored_index)
             end_positions.clamp_(0, ignored_index)
             loss_fct = CrossEntropyLoss(
-                ignore_index=ignored_index, reduce=False)
+                ignore_index=ignored_index, reduction='none')
 
             # if no_masking is True, we do not mask the no-answer examples'
             # span losses.
@@ -98,7 +98,7 @@ class BertForQuestionAnsweringConfidence(BertPreTrainedModel):
             switch_losses = loss_fct(switch_logits, switch_list)
             assert len(start_losses) == len(
                 end_losses) == len(switch_losses)
-            return self.lambda_scale * (start_losses + end_losses) + switch_losses
+            return (self.lambda_scale * (start_losses + end_losses) + switch_losses).mean()
 
         elif start_positions is None or end_positions is None or switch_list is None:
             return start_logits, end_logits, switch_logits
@@ -183,8 +183,7 @@ class IterBertForQuestionAnsweringConfidence(IterBertModel):
             ignored_index = start_logits.size(1)
             start_positions.clamp_(0, ignored_index)
             end_positions.clamp_(0, ignored_index)
-            loss_fct = CrossEntropyLoss(
-                ignore_index=ignored_index, reduce=False)
+            loss_fct = CrossEntropyLoss(ignore_index=ignored_index, reduction='none')
 
             # if no_masking is True, we do not mask the no-answer examples'
             # span losses.
@@ -195,14 +194,13 @@ class IterBertForQuestionAnsweringConfidence(IterBertModel):
             else:
                 # You care about the span only when switch is 0
                 span_mask = (switch_list == 0).type(torch.FloatTensor).cuda()
-                start_losses = loss_fct(
-                    start_logits, start_positions) * span_mask
+                start_losses = loss_fct(start_logits, start_positions) * span_mask
                 end_losses = loss_fct(end_logits, end_positions) * span_mask
 
             switch_losses = loss_fct(switch_logits, switch_list)
-            assert len(start_losses) == len(
-                end_losses) == len(switch_losses)
-            return self.lambda_scale * (start_losses + end_losses) + switch_losses
+            assert len(start_losses) == len(end_losses) == len(switch_losses)
+
+            return (self.lambda_scale * (start_losses + end_losses) + switch_losses).mean()
 
         elif start_positions is None or end_positions is None or switch_list is None:
             return start_logits, end_logits, switch_logits
