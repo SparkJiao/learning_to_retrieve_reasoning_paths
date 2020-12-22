@@ -411,7 +411,7 @@ def main():
                 else:
                     train_sampler = RandomSampler(train_data)
                 train_dataloader = DataLoader(train_data, sampler=train_sampler, batch_size=args.train_batch_size,
-                                              num_workers=8, pin_memory=True)
+                                              pin_memory=True)
 
                 if args.local_rank != -1:
                     train_dataloader.sampler.set_epoch(epc)
@@ -439,13 +439,14 @@ def main():
                     segment_ids = segment_ids[:, :batch_max_para_num, :batch_max_len]
                     output_masks = output_masks[:, :batch_max_steps, :batch_max_para_num + 1]  # 1 for EOE
 
-                    target = torch.FloatTensor(output_masks.size()).fill_(NEGATIVE)  # (B, NUM_STEPS, |P|+1) <- 1 for EOE
+                    target = torch.zeros(output_masks.size()).fill_(NEGATIVE)  # (B, NUM_STEPS, |P|+1) <- 1 for EOE
                     for i in range(B):
                         output_masks[i, :num_steps[i], -1] = 1.0  # for EOE
 
-                        for j in range(num_steps[i].item() - 1):
-                            target[i, j, j].fill_(POSITIVE)
-
+                        _tmp = num_steps[i].item() - 1
+                        target[i, :_tmp, :_tmp] = torch.zeros(_tmp, _tmp).fill_(POSITIVE)
+                        # for j in range(num_steps[i].item() - 1):
+                        #     target[i, j, j].fill_(POSITIVE)
                         target[i, num_steps[i] - 1, -1].fill_(POSITIVE)
                     target = target.to(device)
 
