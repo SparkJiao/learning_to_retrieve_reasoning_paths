@@ -8,6 +8,8 @@ import logging
 import os
 import random
 import sys
+import gc
+import math
 
 import numpy as np
 import torch
@@ -416,6 +418,16 @@ def main():
                 train_end_index = min(train_start_index + train_chunk - 1, TOTAL_NUM - 1)
                 chunk_len = train_end_index - train_start_index + 1
 
+                if args.resume is not None and global_step < args.resume:
+                    _chunk_steps = int(math.ceil(chunk_len * 1.0
+                                                 / args.train_batch_size
+                                                 / (1 if args.local_rank == -1 else dist.get_world_size())))
+                    _chunk_steps = _chunk_steps // args.gradient_accumulation_steps
+                    if global_step + _chunk_steps <= args.resume:
+                        global_step += _chunk_steps
+                        train_start_index = train_end_index + 1
+                        continue
+
                 train_features_ = train_features[train_start_index:train_start_index + chunk_len]
 
                 all_input_ids = torch.tensor([f.input_ids for f in train_features_], dtype=torch.long)
@@ -441,6 +453,11 @@ def main():
                 logger.info('Examples from ' + str(train_start_index) + ' to ' + str(train_end_index))
                 for step, batch in enumerate(tqdm(train_dataloader, desc="Iteration",
                                                   disable=args.local_rank not in [-1, 0])):
+                    if args.resume is not None and global_step < args.resume:
+                        if (step + 1) % args.gradient_accumulation_steps == 0:
+                            global_step += 1
+                        continue
+
                     input_masks = batch[1]
                     batch_max_len = input_masks.sum(dim=2).max().item()
 
@@ -569,16 +586,17 @@ def main():
                     status = save(model, args.output_dir, str(epc + 0.5))
                     save_retry = (not status)
 
+                del train_features_
                 del all_input_ids
                 del all_input_masks
                 del all_segment_ids
                 del all_output_masks
                 del all_num_paragraphs
                 del all_num_steps
-                del train_dataloader
-                del train_sampler
                 del train_data
-                del train_features_
+                del train_sampler
+                del train_dataloader
+                gc.collect()
 
             # Save the model at the end of the epoch
             if args.local_rank in [-1, 0]:
