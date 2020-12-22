@@ -194,6 +194,7 @@ def main():
     parser.add_argument("--cache_dir", default=None, type=str)
     parser.add_argument("--dist", default=False, action='store_true', help='use distributed training.')
     parser.add_argument("--save_steps", default=5000, type=int)
+    parser.add_argument("--resume", default=None, type=int)
 
     args = parser.parse_args()
 
@@ -355,6 +356,17 @@ def main():
         if n_gpu > 1:
             model = torch.nn.DataParallel(model)
 
+        if args.local_rank is not None:
+            _amp_state_dict = os.path.join(args.oss_cache_dir, f"amp_{args.resume}.bin")
+            _optimizer_state_dict = os.path.join(args.oss_cache_dir, f"optimizer_{args.resume}.bin")
+            _scheduler_state_dict = os.path.join(args.oss_cache_dir, f"scheduler_{args.resume}.bin")
+
+            amp.load_state_dict(_amp_state_dict)
+            optimizer.load_state_dict(_optimizer_state_dict)
+            scheduler.load_state_dict(_scheduler_state_dict)
+
+            logger.info(f"Loaded resumed state dict of step {args.resume}")
+
         logger.info("***** Running training *****")
         logger.info("  Num examples = %d", len(train_features))
         logger.info("  Instantaneous batch size per GPU = %d", args.train_batch_size)
@@ -418,7 +430,8 @@ def main():
 
                 tr_loss = 0
                 logger.info('Examples from ' + str(train_start_index) + ' to ' + str(train_end_index))
-                for step, batch in enumerate(tqdm(train_dataloader, desc="Iteration")):
+                for step, batch in enumerate(tqdm(train_dataloader, desc="Iteration",
+                                                  disable=args.local_rank not in [-1, 0])):
                     input_masks = batch[1]
                     batch_max_len = input_masks.sum(dim=2).max().item()
 
@@ -516,16 +529,18 @@ def main():
                                         f"Learning rate: {scheduler.get_lr()[0]}\t"
                                         f"Global step: {global_step}")
 
-                        if global_step % args.save_steps == 0 and args.local_rank in [-1, 0]:
-                            model_to_save = model.module if hasattr(model, 'module') else model
-                            output_model_file = os.path.join(args.oss_cache_dir, f"pytorch_model_{global_step}.bin")
-                            torch_save_to_oss(model_to_save.state_dict(), output_model_file)
+                        if global_step % args.save_steps == 0:
+                            if args.local_rank in [-1, 0]:
+                                model_to_save = model.module if hasattr(model, 'module') else model
+                                output_model_file = os.path.join(args.oss_cache_dir, f"pytorch_model_{global_step}.bin")
+                                torch_save_to_oss(model_to_save.state_dict(), output_model_file)
 
-                            amp_file = os.path.join(args.oss_cache_dir, f"amp_{global_step}.bin")
+                            _suffix = "" if args.local_rank == -1 else f"_{args.local_rank}"
+                            amp_file = os.path.join(args.oss_cache_dir, f"amp_{global_step}{_suffix}.bin")
                             torch_save_to_oss(amp.state_dict(), amp_file)
-                            optimizer_file = os.path.join(args.oss_cache_dir, f"optimizer_{global_step}.pt")
+                            optimizer_file = os.path.join(args.oss_cache_dir, f"optimizer_{global_step}{_suffix}.pt")
                             torch_save_to_oss(optimizer.state_dict(), optimizer_file)
-                            scheduler_file = os.path.join(args.oss_cache_dir, f"scheduler_{global_step}.pt")
+                            scheduler_file = os.path.join(args.oss_cache_dir, f"scheduler_{global_step}{_suffix}.pt")
                             torch_save_to_oss(scheduler.state_dict(), scheduler_file)
 
                             logger.info(f"checkpoint of step {global_step} is saved to oss.")
