@@ -7,26 +7,26 @@ import json
 import logging
 import os
 import random
+import sys
 
 import numpy as np
 import torch
-from torch.utils.data import TensorDataset, DataLoader, RandomSampler, SequentialSampler
+from oss_utils import torch_save_to_oss, load_buffer_from_oss
 from torch import distributed as dist
+from torch.utils.data import TensorDataset, DataLoader, RandomSampler, SequentialSampler
 from tqdm import tqdm
 from transformers import AutoTokenizer
 from transformers.optimization import AdamW, get_linear_schedule_with_warmup
-from oss_utils import torch_save_to_oss, load_buffer_from_oss
 
-import sys 
-parentdir = os.path.dirname(os.path.dirname(os.path.abspath(__file__))) 
-sys.path.insert(0, parentdir)
-
+parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, parent_dir)
 
 from modeling_graph_retriever_iter import BertForGraphRetriever
 from utils import DataProcessor
 from utils import convert_examples_to_features
 from utils import save, load
 from utils import GraphRetrieverConfig
+
 # except ImportError:
 #     from .modeling_graph_retriever_iter import BertForGraphRetriever
 #     from .utils import DataProcessor, convert_examples_to_features, save, load, GraphRetrieverConfig
@@ -35,7 +35,6 @@ logging.basicConfig(format='%(asctime)s - %(levelname)s - %(name)s -   %(message
                     datefmt='%m/%d/%Y %H:%M:%S',
                     level=logging.INFO)
 logger = logging.getLogger(__name__)
-
 
 oss_features_cache_dir = 'bert_cached_features/'
 
@@ -211,12 +210,12 @@ def main():
         torch.cuda.set_device(args.local_rank)
         device = torch.device("cuda", args.local_rank)
         n_gpu = 1
-        # Initializes the distributed backend which will take care of sychronizing nodes/GPUs
+        # Initializes the distributed backend which will take care of synchronizing nodes/GPUs
         dist.init_process_group(backend='nccl')
 
     if args.dist:
-        global_rank = torch.distributed.get_rank()
-        world_size = torch.distributed.get_world_size()
+        global_rank = dist.get_rank()
+        world_size = dist.get_world_size()
         if world_size > 1:
             args.local_rank = global_rank
 
@@ -282,8 +281,17 @@ def main():
     # Training                   #
     ##############################
     if do_train:
+        if args.resume is not None:
+            _model_state_dict = torch.load(
+                load_buffer_from_oss(os.path.join(args.oss_cache_dir, f"pytorch_model_{args.resume}.bin")),
+                map_location='cpu'
+            )
+        else:
+            _model_state_dict = None
+
         model = BertForGraphRetriever.from_pretrained(args.bert_model,
-                                                      graph_retriever_config=graph_retriever_config)
+                                                      graph_retriever_config=graph_retriever_config,
+                                                      state_dict=_model_state_dict)
 
         model.to(device)
 
@@ -300,7 +308,8 @@ def main():
         logger.info(f"Loading training examples and features.")
         try:
             if args.cache_dir is not None and os.path.exists(os.path.join(args.cache_dir, _features_cache_file_name)):
-                logger.info(f"Loading pre-processed features from {os.path.join(args.cache_dir, _features_cache_file_name)}")
+                logger.info(
+                    f"Loading pre-processed features from {os.path.join(args.cache_dir, _features_cache_file_name)}")
                 train_features = torch.load(os.path.join(args.cache_dir, _features_cache_file_name))
             else:
                 # train_examples = torch.load(load_buffer_from_oss(os.path.join(oss_features_cache_dir,
@@ -361,9 +370,9 @@ def main():
             _optimizer_state_dict = os.path.join(args.oss_cache_dir, f"optimizer_{args.resume}.bin")
             _scheduler_state_dict = os.path.join(args.oss_cache_dir, f"scheduler_{args.resume}.bin")
 
-            amp.load_state_dict(_amp_state_dict)
-            optimizer.load_state_dict(_optimizer_state_dict)
-            scheduler.load_state_dict(_scheduler_state_dict)
+            amp.load_state_dict(torch.load(load_buffer_from_oss(_amp_state_dict)))
+            optimizer.load_state_dict(torch.load(load_buffer_from_oss(_optimizer_state_dict)))
+            scheduler.load_state_dict(torch.load(load_buffer_from_oss(_scheduler_state_dict)))
 
             logger.info(f"Loaded resumed state dict of step {args.resume}")
 
@@ -389,7 +398,7 @@ def main():
             torch_save_to_oss(optimizer.state_dict(), optimizer_file)
             scheduler_file = os.path.join(args.oss_cache_dir, f"scheduler_{global_step}.pt")
             torch_save_to_oss(scheduler.state_dict(), scheduler_file)
-        
+
         for _ in range(int(args.num_train_epochs)):
             logger.info('Epoch ' + str(epc + 1))
 
@@ -512,7 +521,7 @@ def main():
                         del target_
 
                     if (step + 1) % args.gradient_accumulation_steps == 0:
-                        
+
                         if args.fp16:
                             torch.nn.utils.clip_grad_norm_(amp.master_params(optimizer), 1.0)
                         else:
@@ -551,7 +560,7 @@ def main():
                     del output_masks
                     del target
                     del batch
-                
+
                 chunk_index += 1
                 train_start_index = train_end_index + 1
 
@@ -559,7 +568,7 @@ def main():
                 if (chunk_index == CHUNK_NUM // 2 or save_retry) and args.local_rank in [-1, 0]:
                     status = save(model, args.output_dir, str(epc + 0.5))
                     save_retry = (not status)
-                
+
                 del all_input_ids
                 del all_input_masks
                 del all_segment_ids
