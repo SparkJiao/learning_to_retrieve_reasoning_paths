@@ -23,7 +23,8 @@ from transformers.optimization import AdamW, get_linear_schedule_with_warmup
 parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, parent_dir)
 
-from modeling_graph_retriever_iter import BertForGraphRetriever
+# from modeling_graph_retriever_iter import BertForGraphRetriever
+from modeling_graph_retriever import BertForGraphRetriever
 from utils import DataProcessor
 from utils import convert_examples_to_features
 from utils import save, load

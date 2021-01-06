@@ -1,8 +1,8 @@
 hotpot_dev_file_path='data/hotpot/hotpot_dev_squad_v2.0_format.json'
 
-output_dir='models/hotpot_models/reader_bert_iter_6/11430steps'
+output_dir='models/hotpot_models/reader_bert_iter_v2_0/11430steps'
 
-# python reader/run_reader_confidence_iter.py \
+# python reader/run_reader_confidence_iter_v2.py \
 # --bert_model $output_dir \
 # --output_dir $output_dir \
 # --predict_file $hotpot_dev_file_path \
@@ -13,9 +13,9 @@ output_dir='models/hotpot_models/reader_bert_iter_6/11430steps'
 
 python squad2_eval.py $hotpot_dev_file_path $output_dir/predictions.json
 
-output_dir='models/hotpot_models/reader_bert_iter_6/13716steps'
+output_dir='models/hotpot_models/reader_bert_iter_v2_0/13716steps'
 
-# python reader/run_reader_confidence_iter.py \
+# python reader/run_reader_confidence_iter_v2.py \
 # --bert_model $output_dir \
 # --output_dir $output_dir \
 # --predict_file $hotpot_dev_file_path \
@@ -26,9 +26,9 @@ output_dir='models/hotpot_models/reader_bert_iter_6/13716steps'
 
 python squad2_eval.py $hotpot_dev_file_path $output_dir/predictions.json
 
-output_dir='models/hotpot_models/reader_bert_iter_6/16002steps'
+output_dir='models/hotpot_models/reader_bert_iter_v2_0/16002steps'
 
-# python reader/run_reader_confidence_iter.py \
+# python reader/run_reader_confidence_iter_v2.py \
 # --bert_model $output_dir \
 # --output_dir $output_dir \
 # --predict_file $hotpot_dev_file_path \
@@ -39,9 +39,9 @@ output_dir='models/hotpot_models/reader_bert_iter_6/16002steps'
 
 python squad2_eval.py $hotpot_dev_file_path $output_dir/predictions.json
 
-output_dir='models/hotpot_models/reader_bert_iter_6/18288steps'
+output_dir='models/hotpot_models/reader_bert_iter_v2_0/18288steps'
 
-# python reader/run_reader_confidence_iter.py \
+# python reader/run_reader_confidence_iter_v2.py \
 # --bert_model $output_dir \
 # --output_dir $output_dir \
 # --predict_file $hotpot_dev_file_path \
@@ -52,9 +52,9 @@ output_dir='models/hotpot_models/reader_bert_iter_6/18288steps'
 
 python squad2_eval.py $hotpot_dev_file_path $output_dir/predictions.json
 
-output_dir='models/hotpot_models/reader_bert_iter_6/20574steps'
+output_dir='models/hotpot_models/reader_bert_iter_v2_0/20574steps'
 
-# python reader/run_reader_confidence_iter.py \
+# python reader/run_reader_confidence_iter_v2.py \
 # --bert_model $output_dir \
 # --output_dir $output_dir \
 # --predict_file $hotpot_dev_file_path \
@@ -65,9 +65,9 @@ output_dir='models/hotpot_models/reader_bert_iter_6/20574steps'
 
 python squad2_eval.py $hotpot_dev_file_path $output_dir/predictions.json
 
-output_dir='models/hotpot_models/reader_bert_iter_6/22860steps'
+output_dir='models/hotpot_models/reader_bert_iter_v2_0/22860steps'
 
-# python reader/run_reader_confidence_iter.py \
+# python reader/run_reader_confidence_iter_v2.py \
 # --bert_model $output_dir \
 # --output_dir $output_dir \
 # --predict_file $hotpot_dev_file_path \
@@ -78,9 +78,9 @@ output_dir='models/hotpot_models/reader_bert_iter_6/22860steps'
 
 python squad2_eval.py $hotpot_dev_file_path $output_dir/predictions.json
 
-output_dir='models/hotpot_models/reader_bert_iter_6/25146steps'
+output_dir='models/hotpot_models/reader_bert_iter_v2_0/25146steps'
 
-# python reader/run_reader_confidence_iter.py \
+# python reader/run_reader_confidence_iter_v2.py \
 # --bert_model $output_dir \
 # --output_dir $output_dir \
 # --predict_file $hotpot_dev_file_path \
@@ -91,9 +91,9 @@ output_dir='models/hotpot_models/reader_bert_iter_6/25146steps'
 
 python squad2_eval.py $hotpot_dev_file_path $output_dir/predictions.json
 
-output_dir='models/hotpot_models/reader_bert_iter_6/27432steps'
+output_dir='models/hotpot_models/reader_bert_iter_v2_0/27432steps'
 
-# python reader/run_reader_confidence_iter.py \
+# python reader/run_reader_confidence_iter_v2.py \
 # --bert_model $output_dir \
 # --output_dir $output_dir \
 # --predict_file $hotpot_dev_file_path \
@@ -104,9 +104,9 @@ output_dir='models/hotpot_models/reader_bert_iter_6/27432steps'
 
 python squad2_eval.py $hotpot_dev_file_path $output_dir/predictions.json
 
-output_dir='models/hotpot_models/reader_bert_iter_6/29718steps'
+output_dir='models/hotpot_models/reader_bert_iter_v2_0/29718steps'
 
-# python reader/run_reader_confidence_iter.py \
+# python reader/run_reader_confidence_iter_v2.py \
 # --bert_model $output_dir \
 # --output_dir $output_dir \
 # --predict_file $hotpot_dev_file_path \
@@ -117,9 +117,9 @@ output_dir='models/hotpot_models/reader_bert_iter_6/29718steps'
 
 python squad2_eval.py $hotpot_dev_file_path $output_dir/predictions.json
 
-output_dir='models/hotpot_models/reader_bert_iter_6/32004steps'
+output_dir='models/hotpot_models/reader_bert_iter_v2_0/32004steps'
 
-# python reader/run_reader_confidence_iter.py \
+# python reader/run_reader_confidence_iter_v2.py \
 # --bert_model $output_dir \
 # --output_dir $output_dir \
 # --predict_file $hotpot_dev_file_path \
@@ -130,9 +130,9 @@ output_dir='models/hotpot_models/reader_bert_iter_6/32004steps'
 
 python squad2_eval.py $hotpot_dev_file_path $output_dir/predictions.json
 
-output_dir='models/hotpot_models/reader_bert_iter_6/34290steps'
+output_dir='models/hotpot_models/reader_bert_iter_v2_0/34290steps'
 
-# python reader/run_reader_confidence_iter.py \
+# python reader/run_reader_confidence_iter_v2.py \
 # --bert_model $output_dir \
 # --output_dir $output_dir \
 # --predict_file $hotpot_dev_file_path \
@@ -143,9 +143,9 @@ output_dir='models/hotpot_models/reader_bert_iter_6/34290steps'
 
 python squad2_eval.py $hotpot_dev_file_path $output_dir/predictions.json
 
-output_dir='models/hotpot_models/reader_bert_iter_6/36576steps'
+output_dir='models/hotpot_models/reader_bert_iter_v2_0/36576steps'
 
-# python reader/run_reader_confidence_iter.py \
+# python reader/run_reader_confidence_iter_v2.py \
 # --bert_model $output_dir \
 # --output_dir $output_dir \
 # --predict_file $hotpot_dev_file_path \
@@ -156,9 +156,9 @@ output_dir='models/hotpot_models/reader_bert_iter_6/36576steps'
 
 python squad2_eval.py $hotpot_dev_file_path $output_dir/predictions.json
 
-output_dir='models/hotpot_models/reader_bert_iter_6/38862steps'
+output_dir='models/hotpot_models/reader_bert_iter_v2_0/38862steps'
 
-# python reader/run_reader_confidence_iter.py \
+# python reader/run_reader_confidence_iter_v2.py \
 # --bert_model $output_dir \
 # --output_dir $output_dir \
 # --predict_file $hotpot_dev_file_path \
@@ -169,9 +169,9 @@ output_dir='models/hotpot_models/reader_bert_iter_6/38862steps'
 
 python squad2_eval.py $hotpot_dev_file_path $output_dir/predictions.json
 
-output_dir='models/hotpot_models/reader_bert_iter_6/41148steps'
+output_dir='models/hotpot_models/reader_bert_iter_v2_0/41148steps'
 
-# python reader/run_reader_confidence_iter.py \
+# python reader/run_reader_confidence_iter_v2.py \
 # --bert_model $output_dir \
 # --output_dir $output_dir \
 # --predict_file $hotpot_dev_file_path \
@@ -182,10 +182,10 @@ output_dir='models/hotpot_models/reader_bert_iter_6/41148steps'
 
 python squad2_eval.py $hotpot_dev_file_path $output_dir/predictions.json
 
-output_dir='models/hotpot_models/reader_bert_iter_6/43434steps'
+output_dir='models/hotpot_models/reader_bert_iter_v2_0/43434steps'
 # Best performance
 
-# python reader/run_reader_confidence_iter.py \
+# python reader/run_reader_confidence_iter_v2.py \
 # --bert_model $output_dir \
 # --output_dir $output_dir \
 # --predict_file $hotpot_dev_file_path \
@@ -196,10 +196,10 @@ output_dir='models/hotpot_models/reader_bert_iter_6/43434steps'
 
 python squad2_eval.py $hotpot_dev_file_path $output_dir/predictions.json
 
-output_dir='models/hotpot_models/reader_bert_iter_6/45720steps'
+output_dir='models/hotpot_models/reader_bert_iter_v2_0/45720steps'
 # Best performance
 
-# python reader/run_reader_confidence_iter.py \
+# python reader/run_reader_confidence_iter_v2.py \
 # --bert_model $output_dir \
 # --output_dir $output_dir \
 # --predict_file $hotpot_dev_file_path \
@@ -210,9 +210,9 @@ output_dir='models/hotpot_models/reader_bert_iter_6/45720steps'
 
 python squad2_eval.py $hotpot_dev_file_path $output_dir/predictions.json
 
-output_dir='models/hotpot_models/reader_bert_iter_6'
+output_dir='models/hotpot_models/reader_bert_iter_v2_0'
 
-# python reader/run_reader_confidence_iter.py \
+# python reader/run_reader_confidence_iter_v2.py \
 # --bert_model $output_dir \
 # --output_dir $output_dir \
 # --predict_file $hotpot_dev_file_path \

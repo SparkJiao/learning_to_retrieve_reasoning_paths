@@ -140,7 +140,304 @@ reader_path='models/hotpot_models/reader_bert_base_baseline_1'
 
 reader_path='models/hotpot_models/reader_bert_base_baseline_2'
 
-# run evaluation scripts / bert-base-baseline
+# # run evaluation scripts / bert-base-baseline
+# python eval_main.py \
+# --eval_file_path data/hotpot/hotpot_fullwiki_data.jsonl \
+# --eval_file_path_sp data/hotpot/hotpot_dev_distractor_v1.json \
+# --graph_retriever_path $retriever_path \
+# --reader_path $reader_path \
+# --sequential_sentence_selector_path models/hotpot_models/sequential_sentence_selector/pytorch_model.bin \
+# --tfidf_path models/hotpot_models/tfidf_retriever/wiki_open_full_new_db_intro_only-tfidf-ngram=2-hash=16777216-tokenizer=simple.npz \
+# --db_path models/hotpot_models/wiki_db/wiki_abst_only_hotpotqa_w_original_title.db \
+# --bert_model_sequential_sentence_selector /home/admin/workspace/bert-large-uncased --do_lower_case \
+# --tfidf_limit 500 --eval_batch_size 4 --pruning_by_links --beam_graph_retriever 8 \
+# --beam_sequential_sentence_selector 8 --max_para_num 2000 --sp_eval --sampled \
+# --saved_tfidf_retrieval_outputs_path $saved_tfidf_retrieval_outputs_path \
+# --saved_selector_outputs_path $saved_selector_outputs_path \
+# --reader_results_save_path evaluation_results/bert_base_reader_baseline_2/reader_results/reader_results.json \
+# --sequence_sentence_selector_save_path evaluation_results/bert_base_reader_baseline_2/sequence_sentence_selector_results/sequence_sentence_selector_results.json
+
+
+reader_path='models/hotpot_models/reader_bert_iter_2/45720steps'
+
+# run evaluation scripts / bert-iter-base
+# python eval_main.py \
+# --eval_file_path data/hotpot/hotpot_fullwiki_data.jsonl \
+# --eval_file_path_sp data/hotpot/hotpot_dev_distractor_v1.json \
+# --graph_retriever_path $retriever_path \
+# --reader_path $reader_path \
+# --sequential_sentence_selector_path models/hotpot_models/sequential_sentence_selector/pytorch_model.bin \
+# --tfidf_path models/hotpot_models/tfidf_retriever/wiki_open_full_new_db_intro_only-tfidf-ngram=2-hash=16777216-tokenizer=simple.npz \
+# --db_path models/hotpot_models/wiki_db/wiki_abst_only_hotpotqa_w_original_title.db \
+# --bert_model_sequential_sentence_selector /home/admin/workspace/bert-large-uncased --do_lower_case \
+# --tfidf_limit 500 --eval_batch_size 4 --pruning_by_links --beam_graph_retriever 8 \
+# --beam_sequential_sentence_selector 8 --max_para_num 2000 --sp_eval --sampled \
+# --saved_tfidf_retrieval_outputs_path $saved_tfidf_retrieval_outputs_path \
+# --saved_selector_outputs_path $saved_selector_outputs_path \
+# --reader_results_save_path evaluation_results/iter_bert_base_reader_2/reader_results/reader_results.json \
+# --sequence_sentence_selector_save_path evaluation_results/iter_bert_base_reader_2/sequence_sentence_selector_results/sequence_sentence_selector_results.json
+
+
+reader_path='models/hotpot_models/reader_bert_base_baseline_3'
+
+# # run evaluation scripts / bert-base-baseline
+# python eval_main.py \
+# --eval_file_path data/hotpot/hotpot_fullwiki_data.jsonl \
+# --eval_file_path_sp data/hotpot/hotpot_dev_distractor_v1.json \
+# --graph_retriever_path $retriever_path \
+# --reader_path $reader_path \
+# --sequential_sentence_selector_path models/hotpot_models/sequential_sentence_selector/pytorch_model.bin \
+# --tfidf_path models/hotpot_models/tfidf_retriever/wiki_open_full_new_db_intro_only-tfidf-ngram=2-hash=16777216-tokenizer=simple.npz \
+# --db_path models/hotpot_models/wiki_db/wiki_abst_only_hotpotqa_w_original_title.db \
+# --bert_model_sequential_sentence_selector /home/admin/workspace/bert-large-uncased --do_lower_case \
+# --tfidf_limit 500 --eval_batch_size 4 --pruning_by_links --beam_graph_retriever 8 \
+# --beam_sequential_sentence_selector 8 --max_para_num 2000 --sp_eval --sampled \
+# --saved_tfidf_retrieval_outputs_path $saved_tfidf_retrieval_outputs_path \
+# --saved_selector_outputs_path $saved_selector_outputs_path \
+# --reader_results_save_path evaluation_results/bert_base_reader_baseline_3/reader_results/reader_results.json \
+# --sequence_sentence_selector_save_path evaluation_results/bert_base_reader_baseline_3/sequence_sentence_selector_results/sequence_sentence_selector_results.json
+
+reader_path='models/hotpot_models/reader_bert_base_baseline_4'
+
+# # run evaluation scripts / bert-base-baseline
+# python eval_main.py \
+# --eval_file_path data/hotpot/hotpot_fullwiki_data.jsonl \
+# --eval_file_path_sp data/hotpot/hotpot_dev_distractor_v1.json \
+# --graph_retriever_path $retriever_path \
+# --reader_path $reader_path \
+# --sequential_sentence_selector_path models/hotpot_models/sequential_sentence_selector/pytorch_model.bin \
+# --tfidf_path models/hotpot_models/tfidf_retriever/wiki_open_full_new_db_intro_only-tfidf-ngram=2-hash=16777216-tokenizer=simple.npz \
+# --db_path models/hotpot_models/wiki_db/wiki_abst_only_hotpotqa_w_original_title.db \
+# --bert_model_sequential_sentence_selector /home/admin/workspace/bert-large-uncased --do_lower_case \
+# --tfidf_limit 500 --eval_batch_size 4 --pruning_by_links --beam_graph_retriever 8 \
+# --beam_sequential_sentence_selector 8 --max_para_num 2000 --sp_eval --sampled \
+# --saved_tfidf_retrieval_outputs_path $saved_tfidf_retrieval_outputs_path \
+# --saved_selector_outputs_path $saved_selector_outputs_path \
+# --reader_results_save_path evaluation_results/bert_base_reader_baseline_4/reader_results/reader_results.json \
+# --sequence_sentence_selector_save_path evaluation_results/bert_base_reader_baseline_4/sequence_sentence_selector_results/sequence_sentence_selector_results.json
+
+
+reader_path='models/hotpot_models/reader_bert_base_baseline_5'
+
+# # run evaluation scripts / bert-base-baseline
+# python eval_main.py \
+# --eval_file_path data/hotpot/hotpot_fullwiki_data.jsonl \
+# --eval_file_path_sp data/hotpot/hotpot_dev_distractor_v1.json \
+# --graph_retriever_path $retriever_path \
+# --reader_path $reader_path \
+# --sequential_sentence_selector_path models/hotpot_models/sequential_sentence_selector/pytorch_model.bin \
+# --tfidf_path models/hotpot_models/tfidf_retriever/wiki_open_full_new_db_intro_only-tfidf-ngram=2-hash=16777216-tokenizer=simple.npz \
+# --db_path models/hotpot_models/wiki_db/wiki_abst_only_hotpotqa_w_original_title.db \
+# --bert_model_sequential_sentence_selector /home/admin/workspace/bert-large-uncased --do_lower_case \
+# --tfidf_limit 500 --eval_batch_size 4 --pruning_by_links --beam_graph_retriever 8 \
+# --beam_sequential_sentence_selector 8 --max_para_num 2000 --sp_eval --sampled \
+# --saved_tfidf_retrieval_outputs_path $saved_tfidf_retrieval_outputs_path \
+# --saved_selector_outputs_path $saved_selector_outputs_path \
+# --reader_results_save_path evaluation_results/bert_base_reader_baseline_5/reader_results/reader_results.json \
+# --sequence_sentence_selector_save_path evaluation_results/bert_base_reader_baseline_5/sequence_sentence_selector_results/sequence_sentence_selector_results.json
+
+
+reader_path='models/hotpot_models/reader_bert_base_baseline_6'
+reader_path='models/hotpot_models/reader_bert_base_baseline_6/68589steps'
+
+# # run evaluation scripts / bert-base-baseline
+# python eval_main.py \
+# --eval_file_path data/hotpot/hotpot_fullwiki_data.jsonl \
+# --eval_file_path_sp data/hotpot/hotpot_dev_distractor_v1.json \
+# --graph_retriever_path $retriever_path \
+# --reader_path $reader_path \
+# --sequential_sentence_selector_path models/hotpot_models/sequential_sentence_selector/pytorch_model.bin \
+# --tfidf_path models/hotpot_models/tfidf_retriever/wiki_open_full_new_db_intro_only-tfidf-ngram=2-hash=16777216-tokenizer=simple.npz \
+# --db_path models/hotpot_models/wiki_db/wiki_abst_only_hotpotqa_w_original_title.db \
+# --bert_model_sequential_sentence_selector /home/admin/workspace/bert-large-uncased --do_lower_case \
+# --tfidf_limit 500 --eval_batch_size 4 --pruning_by_links --beam_graph_retriever 8 \
+# --beam_sequential_sentence_selector 8 --max_para_num 2000 --sp_eval --sampled \
+# --saved_tfidf_retrieval_outputs_path $saved_tfidf_retrieval_outputs_path \
+# --saved_selector_outputs_path $saved_selector_outputs_path \
+# --reader_results_save_path evaluation_results/bert_base_reader_baseline_6/reader_results/reader_results.json \
+# --sequence_sentence_selector_save_path evaluation_results/bert_base_reader_baseline_6/sequence_sentence_selector_results/sequence_sentence_selector_results.json
+
+
+reader_path='models/hotpot_models/reader_bert_base_baseline_7'
+
+# # run evaluation scripts / bert-base-baseline
+# python eval_main.py \
+# --eval_file_path data/hotpot/hotpot_fullwiki_data.jsonl \
+# --eval_file_path_sp data/hotpot/hotpot_dev_distractor_v1.json \
+# --graph_retriever_path $retriever_path \
+# --reader_path $reader_path \
+# --sequential_sentence_selector_path models/hotpot_models/sequential_sentence_selector/pytorch_model.bin \
+# --tfidf_path models/hotpot_models/tfidf_retriever/wiki_open_full_new_db_intro_only-tfidf-ngram=2-hash=16777216-tokenizer=simple.npz \
+# --db_path models/hotpot_models/wiki_db/wiki_abst_only_hotpotqa_w_original_title.db \
+# --bert_model_sequential_sentence_selector /home/admin/workspace/bert-large-uncased --do_lower_case \
+# --tfidf_limit 500 --eval_batch_size 4 --pruning_by_links --beam_graph_retriever 8 \
+# --beam_sequential_sentence_selector 8 --max_para_num 2000 --sp_eval --sampled \
+# --saved_tfidf_retrieval_outputs_path $saved_tfidf_retrieval_outputs_path \
+# --saved_selector_outputs_path $saved_selector_outputs_path \
+# --reader_results_save_path evaluation_results/bert_base_reader_baseline_7/reader_results/reader_results.json \
+# --sequence_sentence_selector_save_path evaluation_results/bert_base_reader_baseline_7/sequence_sentence_selector_results/sequence_sentence_selector_results.json
+
+# reader_path='models/hotpot_models/reader_bert_base_baseline_8'
+
+# # run evaluation scripts / bert-base-baseline
+# python eval_main.py \
+# --eval_file_path data/hotpot/hotpot_fullwiki_data.jsonl \
+# --eval_file_path_sp data/hotpot/hotpot_dev_distractor_v1.json \
+# --graph_retriever_path $retriever_path \
+# --reader_path $reader_path \
+# --sequential_sentence_selector_path models/hotpot_models/sequential_sentence_selector/pytorch_model.bin \
+# --tfidf_path models/hotpot_models/tfidf_retriever/wiki_open_full_new_db_intro_only-tfidf-ngram=2-hash=16777216-tokenizer=simple.npz \
+# --db_path models/hotpot_models/wiki_db/wiki_abst_only_hotpotqa_w_original_title.db \
+# --bert_model_sequential_sentence_selector /home/admin/workspace/bert-large-uncased --do_lower_case \
+# --tfidf_limit 500 --eval_batch_size 4 --pruning_by_links --beam_graph_retriever 8 \
+# --beam_sequential_sentence_selector 8 --max_para_num 2000 --sp_eval --sampled \
+# --saved_tfidf_retrieval_outputs_path $saved_tfidf_retrieval_outputs_path \
+# --saved_selector_outputs_path $saved_selector_outputs_path \
+# --reader_results_save_path evaluation_results/bert_base_reader_baseline_7/reader_results/reader_results.json \
+# --sequence_sentence_selector_save_path evaluation_results/bert_base_reader_baseline_7/sequence_sentence_selector_results/sequence_sentence_selector_results.json
+
+reader_path='models/hotpot_models/reader_bert_base_baseline_9'
+
+# # run evaluation scripts / bert-base-baseline
+# python eval_main.py \
+# --eval_file_path data/hotpot/hotpot_fullwiki_data.jsonl \
+# --eval_file_path_sp data/hotpot/hotpot_dev_distractor_v1.json \
+# --graph_retriever_path $retriever_path \
+# --reader_path $reader_path \
+# --sequential_sentence_selector_path models/hotpot_models/sequential_sentence_selector/pytorch_model.bin \
+# --tfidf_path models/hotpot_models/tfidf_retriever/wiki_open_full_new_db_intro_only-tfidf-ngram=2-hash=16777216-tokenizer=simple.npz \
+# --db_path models/hotpot_models/wiki_db/wiki_abst_only_hotpotqa_w_original_title.db \
+# --bert_model_sequential_sentence_selector /home/admin/workspace/bert-large-uncased --do_lower_case \
+# --tfidf_limit 500 --eval_batch_size 4 --pruning_by_links --beam_graph_retriever 8 \
+# --beam_sequential_sentence_selector 8 --max_para_num 2000 --sp_eval --sampled \
+# --saved_tfidf_retrieval_outputs_path $saved_tfidf_retrieval_outputs_path \
+# --saved_selector_outputs_path $saved_selector_outputs_path \
+# --reader_results_save_path evaluation_results/bert_base_reader_baseline_9/reader_results/reader_results.json \
+# --sequence_sentence_selector_save_path evaluation_results/bert_base_reader_baseline_9/sequence_sentence_selector_results/sequence_sentence_selector_results.json
+
+
+reader_path='models/hotpot_models/reader_bert_base_baseline_10/42645steps'
+
+# # run evaluation scripts / bert-base-baseline / max_seq_length = 512
+# python eval_main.py \
+# --eval_file_path data/hotpot/hotpot_fullwiki_data.jsonl \
+# --eval_file_path_sp data/hotpot/hotpot_dev_distractor_v1.json \
+# --graph_retriever_path $retriever_path \
+# --reader_path $reader_path \
+# --sequential_sentence_selector_path models/hotpot_models/sequential_sentence_selector/pytorch_model.bin \
+# --tfidf_path models/hotpot_models/tfidf_retriever/wiki_open_full_new_db_intro_only-tfidf-ngram=2-hash=16777216-tokenizer=simple.npz \
+# --db_path models/hotpot_models/wiki_db/wiki_abst_only_hotpotqa_w_original_title.db \
+# --bert_model_sequential_sentence_selector /home/admin/workspace/bert-large-uncased --do_lower_case --max_seq_length 512 --max_query_length 128 \
+# --tfidf_limit 500 --eval_batch_size 4 --pruning_by_links --beam_graph_retriever 8 \
+# --beam_sequential_sentence_selector 8 --max_para_num 2000 --sp_eval --sampled \
+# --saved_tfidf_retrieval_outputs_path $saved_tfidf_retrieval_outputs_path \
+# --saved_selector_outputs_path $saved_selector_outputs_path \
+# --reader_results_save_path evaluation_results/bert_base_reader_baseline_10/reader_results/reader_results.json \
+# --sequence_sentence_selector_save_path evaluation_results/bert_base_reader_baseline_10/sequence_sentence_selector_results/sequence_sentence_selector_results.json
+
+
+reader_path='models/hotpot_models/reader_bert_base_baseline_12/48768steps'
+
+# # run evaluation scripts / bert-base-baseline / max_seq_length = 512
+# python eval_main.py \
+# --eval_file_path data/hotpot/hotpot_fullwiki_data.jsonl \
+# --eval_file_path_sp data/hotpot/hotpot_dev_distractor_v1.json \
+# --graph_retriever_path $retriever_path \
+# --reader_path $reader_path \
+# --sequential_sentence_selector_path models/hotpot_models/sequential_sentence_selector/pytorch_model.bin \
+# --tfidf_path models/hotpot_models/tfidf_retriever/wiki_open_full_new_db_intro_only-tfidf-ngram=2-hash=16777216-tokenizer=simple.npz \
+# --db_path models/hotpot_models/wiki_db/wiki_abst_only_hotpotqa_w_original_title.db \
+# --bert_model_sequential_sentence_selector /home/admin/workspace/bert-large-uncased --do_lower_case \
+# --tfidf_limit 500 --eval_batch_size 4 --pruning_by_links --beam_graph_retriever 8 \
+# --beam_sequential_sentence_selector 8 --max_para_num 2000 --sp_eval --sampled \
+# --saved_tfidf_retrieval_outputs_path $saved_tfidf_retrieval_outputs_path \
+# --saved_selector_outputs_path $saved_selector_outputs_path \
+# --reader_results_save_path evaluation_results/bert_base_reader_baseline_12/reader_results/reader_results.json \
+# --sequence_sentence_selector_save_path evaluation_results/bert_base_reader_baseline_12/sequence_sentence_selector_results/sequence_sentence_selector_results.json
+
+# reader_path='models/hotpot_models/reader_bert_base_baseline_13/45720steps'
+
+# # run evaluation scripts / bert-base-baseline / max_seq_length = 512
+# python eval_main.py \
+# --eval_file_path data/hotpot/hotpot_fullwiki_data.jsonl \
+# --eval_file_path_sp data/hotpot/hotpot_dev_distractor_v1.json \
+# --graph_retriever_path $retriever_path \
+# --reader_path $reader_path \
+# --sequential_sentence_selector_path models/hotpot_models/sequential_sentence_selector/pytorch_model.bin \
+# --tfidf_path models/hotpot_models/tfidf_retriever/wiki_open_full_new_db_intro_only-tfidf-ngram=2-hash=16777216-tokenizer=simple.npz \
+# --db_path models/hotpot_models/wiki_db/wiki_abst_only_hotpotqa_w_original_title.db \
+# --bert_model_sequential_sentence_selector /home/admin/workspace/bert-large-uncased --do_lower_case \
+# --tfidf_limit 500 --eval_batch_size 4 --pruning_by_links --beam_graph_retriever 8 \
+# --beam_sequential_sentence_selector 8 --max_para_num 2000 --sp_eval --sampled \
+# --saved_tfidf_retrieval_outputs_path $saved_tfidf_retrieval_outputs_path \
+# --saved_selector_outputs_path $saved_selector_outputs_path \
+# --reader_results_save_path evaluation_results/bert_base_reader_baseline_13/reader_results/reader_results.json \
+# --sequence_sentence_selector_save_path evaluation_results/bert_base_reader_baseline_13/sequence_sentence_selector_results/sequence_sentence_selector_results.json
+
+
+reader_path='models/hotpot_models/reader_bert_base_baseline_14'
+
+# # run evaluation scripts / bert-base-baseline
+# python eval_main.py \
+# --eval_file_path data/hotpot/hotpot_fullwiki_data.jsonl \
+# --eval_file_path_sp data/hotpot/hotpot_dev_distractor_v1.json \
+# --graph_retriever_path $retriever_path \
+# --reader_path $reader_path \
+# --sequential_sentence_selector_path models/hotpot_models/sequential_sentence_selector/pytorch_model.bin \
+# --tfidf_path models/hotpot_models/tfidf_retriever/wiki_open_full_new_db_intro_only-tfidf-ngram=2-hash=16777216-tokenizer=simple.npz \
+# --db_path models/hotpot_models/wiki_db/wiki_abst_only_hotpotqa_w_original_title.db \
+# --bert_model_sequential_sentence_selector /home/admin/workspace/bert-large-uncased --do_lower_case \
+# --tfidf_limit 500 --eval_batch_size 4 --pruning_by_links --beam_graph_retriever 8 \
+# --beam_sequential_sentence_selector 8 --max_para_num 2000 --sp_eval --sampled \
+# --saved_tfidf_retrieval_outputs_path $saved_tfidf_retrieval_outputs_path \
+# --saved_selector_outputs_path $saved_selector_outputs_path \
+# --reader_results_save_path evaluation_results/bert_base_reader_baseline_14/reader_results/reader_results.json \
+# --sequence_sentence_selector_save_path evaluation_results/bert_base_reader_baseline_14/sequence_sentence_selector_results/sequence_sentence_selector_results.json
+
+
+reader_path='models/hotpot_models/reader_bert_iter_6'
+
+# # run evaluation scripts / bert-base-iter
+# python eval_main.py \
+# --eval_file_path data/hotpot/hotpot_fullwiki_data.jsonl \
+# --eval_file_path_sp data/hotpot/hotpot_dev_distractor_v1.json \
+# --graph_retriever_path $retriever_path \
+# --reader_path $reader_path \
+# --sequential_sentence_selector_path models/hotpot_models/sequential_sentence_selector/pytorch_model.bin \
+# --tfidf_path models/hotpot_models/tfidf_retriever/wiki_open_full_new_db_intro_only-tfidf-ngram=2-hash=16777216-tokenizer=simple.npz \
+# --db_path models/hotpot_models/wiki_db/wiki_abst_only_hotpotqa_w_original_title.db \
+# --bert_model_sequential_sentence_selector /home/admin/workspace/bert-large-uncased --do_lower_case \
+# --tfidf_limit 500 --eval_batch_size 4 --pruning_by_links --beam_graph_retriever 8 \
+# --beam_sequential_sentence_selector 8 --max_para_num 2000 --sp_eval --sampled \
+# --saved_tfidf_retrieval_outputs_path $saved_tfidf_retrieval_outputs_path \
+# --saved_selector_outputs_path $saved_selector_outputs_path \
+# --reader_results_save_path evaluation_results/iter_bert_base_reader_6/reader_results/reader_results.json \
+# --sequence_sentence_selector_save_path evaluation_results/iter_bert_base_reader_6/sequence_sentence_selector_results/sequence_sentence_selector_results.json
+
+
+# reader_path='models/hotpot_models/reader_bert_iter_7'
+
+# # run evaluation scripts / bert-base-iter
+# python eval_main.py \
+# --eval_file_path data/hotpot/hotpot_fullwiki_data.jsonl \
+# --eval_file_path_sp data/hotpot/hotpot_dev_distractor_v1.json \
+# --graph_retriever_path $retriever_path \
+# --reader_path $reader_path \
+# --sequential_sentence_selector_path models/hotpot_models/sequential_sentence_selector/pytorch_model.bin \
+# --tfidf_path models/hotpot_models/tfidf_retriever/wiki_open_full_new_db_intro_only-tfidf-ngram=2-hash=16777216-tokenizer=simple.npz \
+# --db_path models/hotpot_models/wiki_db/wiki_abst_only_hotpotqa_w_original_title.db \
+# --bert_model_sequential_sentence_selector /home/admin/workspace/bert-large-uncased --do_lower_case \
+# --tfidf_limit 500 --eval_batch_size 4 --pruning_by_links --beam_graph_retriever 8 \
+# --beam_sequential_sentence_selector 8 --max_para_num 2000 --sp_eval --sampled \
+# --saved_tfidf_retrieval_outputs_path $saved_tfidf_retrieval_outputs_path \
+# --saved_selector_outputs_path $saved_selector_outputs_path \
+# --reader_results_save_path evaluation_results/iter_bert_base_reader_7/reader_results/reader_results.json \
+# --sequence_sentence_selector_save_path evaluation_results/iter_bert_base_reader_7/sequence_sentence_selector_results/sequence_sentence_selector_results.json
+
+
+reader_path='models/hotpot_models/reader_bert_iter_v2_0/41148steps'
+
+# run evaluation scripts / bert-base-iter
 python eval_main.py \
 --eval_file_path data/hotpot/hotpot_fullwiki_data.jsonl \
 --eval_file_path_sp data/hotpot/hotpot_dev_distractor_v1.json \
@@ -153,6 +450,45 @@ python eval_main.py \
 --tfidf_limit 500 --eval_batch_size 4 --pruning_by_links --beam_graph_retriever 8 \
 --beam_sequential_sentence_selector 8 --max_para_num 2000 --sp_eval --sampled \
 --saved_tfidf_retrieval_outputs_path $saved_tfidf_retrieval_outputs_path \
---selector_results_save_path evaluation_results/iter_bert_base_reader/graph_retriever_results/retriever_results.json \
---reader_results_save_path evaluation_results/bert_base_reader_baseline_2/reader_results/reader_results.json \
---sequence_sentence_selector_save_path evaluation_results/bert_base_reader_baseline_2/sequence_sentence_selector_results/sequence_sentence_selector_results.json
+--saved_selector_outputs_path $saved_selector_outputs_path \
+--reader_results_save_path evaluation_results/iter_bert_base_reader_v2_0/reader_results/reader_results.json \
+--sequence_sentence_selector_save_path evaluation_results/iter_bert_base_reader_v2_0/sequence_sentence_selector_results/sequence_sentence_selector_results.json
+
+# # Test
+# reader_path='models/hotpot_models/reader'
+
+# python eval_main.py \
+# --eval_file_path data/hotpot/hotpot_fullwiki_data.jsonl \
+# --eval_file_path_sp data/hotpot/hotpot_dev_distractor_v1.json \
+# --graph_retriever_path $retriever_path \
+# --reader_path $reader_path \
+# --sequential_sentence_selector_path models/hotpot_models/sequential_sentence_selector/pytorch_model.bin \
+# --tfidf_path models/hotpot_models/tfidf_retriever/wiki_open_full_new_db_intro_only-tfidf-ngram=2-hash=16777216-tokenizer=simple.npz \
+# --db_path models/hotpot_models/wiki_db/wiki_abst_only_hotpotqa_w_original_title.db \
+# --bert_model_sequential_sentence_selector /home/admin/workspace/bert-large-uncased --do_lower_case \
+# --tfidf_limit 500 --eval_batch_size 4 --pruning_by_links --beam_graph_retriever 8 \
+# --beam_sequential_sentence_selector 8 --max_para_num 2000 --sp_eval --sampled \
+# --saved_tfidf_retrieval_outputs_path $saved_tfidf_retrieval_outputs_path \
+# --saved_selector_outputs_path $saved_selector_outputs_path \
+# --reader_results_save_path evaluation_results/baseline/reader_results/reader_results.json \
+# --sequence_sentence_selector_save_path evaluation_results/baseline/sequence_sentence_selector_results/sequence_sentence_selector_results.json
+
+
+# reader_path='models/hotpot_models/reader_bert_iter_5'
+
+# # run evaluation scripts / bert-base-baseline
+# python eval_main.py \
+# --eval_file_path data/hotpot/hotpot_fullwiki_data.jsonl \
+# --eval_file_path_sp data/hotpot/hotpot_dev_distractor_v1.json \
+# --graph_retriever_path $retriever_path \
+# --reader_path $reader_path \
+# --sequential_sentence_selector_path models/hotpot_models/sequential_sentence_selector/pytorch_model.bin \
+# --tfidf_path models/hotpot_models/tfidf_retriever/wiki_open_full_new_db_intro_only-tfidf-ngram=2-hash=16777216-tokenizer=simple.npz \
+# --db_path models/hotpot_models/wiki_db/wiki_abst_only_hotpotqa_w_original_title.db \
+# --bert_model_sequential_sentence_selector /home/admin/workspace/bert-large-uncased --do_lower_case \
+# --tfidf_limit 500 --eval_batch_size 4 --pruning_by_links --beam_graph_retriever 8 \
+# --beam_sequential_sentence_selector 8 --max_para_num 2000 --sp_eval --sampled \
+# --saved_tfidf_retrieval_outputs_path $saved_tfidf_retrieval_outputs_path \
+# --saved_selector_outputs_path $saved_selector_outputs_path \
+# --reader_results_save_path evaluation_results/iter_bert_base_reader_5/reader_results/reader_results.json \
+# --sequence_sentence_selector_save_path evaluation_results/iter_bert_base_reader_5/sequence_sentence_selector_results/sequence_sentence_selector_results.json

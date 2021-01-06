@@ -21,7 +21,7 @@ from transformers.optimization import AdamW, get_linear_schedule_with_warmup
 parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, parent_dir)
 
-from modeling_reader import IterBertForQuestionAnsweringConfidence, BertForQuestionAnsweringConfidence
+from modeling_reader import IterBertForQuestionAnsweringConfidenceV3 as IterBertForQuestionAnsweringConfidence
 from oss_utils import torch_save_to_oss, load_buffer_from_oss
 
 logger = logging.getLogger(__name__)

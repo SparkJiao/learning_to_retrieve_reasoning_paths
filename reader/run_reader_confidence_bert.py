@@ -180,7 +180,7 @@ def main():
 
     logging.basicConfig(format='%(asctime)s - %(levelname)s - %(name)s -   %(message)s',
                         datefmt='%m/%d/%Y %H:%M:%S',
-                        level=logging.INFO if args.local_rank in [-1, 0] else logging.WARN)
+                        level=logging.INFO)
 
     logger.info("device: {} n_gpu: {}, distributed training: {}, 16-bits training: {}".format(
         device, n_gpu, bool(args.local_rank != -1), args.fp16))
@@ -266,51 +266,52 @@ def main():
         logger.info("finished.")
         return
 
-    # Prepare optimizer
-    param_optimizer = list(model.named_parameters())
-
-    no_decay = ['bias', 'LayerNorm.bias', 'LayerNorm.weight', 'layer_norm']
-    optimizer_grouped_parameters = [
-        {'params': [p for n, p in param_optimizer if not any(
-            nd in n for nd in no_decay)], 'weight_decay': 0.01},
-        {'params': [p for n, p in param_optimizer if any(
-            nd in n for nd in no_decay)], 'weight_decay': 0.0}
-    ]
-    t_total = num_train_optimization_steps
-    if args.local_rank != -1:
-        t_total = t_total // dist.get_world_size()
-
-    optimizer = AdamW(optimizer_grouped_parameters, lr=args.learning_rate, betas=eval(args.adam_betas),
-                      eps=args.adam_epsilon)
-    scheduler = get_linear_schedule_with_warmup(
-        optimizer, int(t_total * args.warmup_proportion), num_train_optimization_steps)
-
-    if args.fp16:
-        from apex import amp
-
-        if args.fp16_opt_level == 'O1':
-            amp.register_half_function(torch, "einsum")
-
-        if args.loss_scale == 0:
-            model, optimizer = amp.initialize(model, optimizer, opt_level=args.fp16_opt_level)
-        else:
-            model, optimizer = amp.initialize(model, optimizer,
-                                              opt_level=args.fp16_opt_level, loss_scale=args.loss_scale)
-    if args.local_rank != -1:
-        if args.fp16_opt_level == 'O2':
-            try:
-                import apex
-                model = apex.parallel.DistributedDataParallel(model, delay_allreduce=True)
-            except ImportError:
-                model = torch.nn.parallel.DistributedDataParallel(model, find_unused_parameters=True)
-        else:
-            model = torch.nn.parallel.DistributedDataParallel(model, find_unused_parameters=True)
-
-    if n_gpu > 1:
-        model = torch.nn.DataParallel(model)
-
-    global_step = 0
     if args.do_train:
+        # Prepare optimizer
+        param_optimizer = list(model.named_parameters())
+
+        no_decay = ['bias', 'LayerNorm.bias', 'LayerNorm.weight', 'layer_norm']
+        optimizer_grouped_parameters = [
+            {'params': [p for n, p in param_optimizer if not any(
+                nd in n for nd in no_decay)], 'weight_decay': 0.01},
+            {'params': [p for n, p in param_optimizer if any(
+                nd in n for nd in no_decay)], 'weight_decay': 0.0}
+        ]
+        t_total = num_train_optimization_steps
+        if args.local_rank != -1:
+            t_total = t_total // dist.get_world_size()
+
+        optimizer = AdamW(optimizer_grouped_parameters, lr=args.learning_rate, betas=eval(args.adam_betas),
+                        eps=args.adam_epsilon)
+        scheduler = get_linear_schedule_with_warmup(
+            optimizer, int(t_total * args.warmup_proportion), num_train_optimization_steps)
+
+        if args.fp16:
+            from apex import amp
+
+            if args.fp16_opt_level == 'O1':
+                amp.register_half_function(torch, "einsum")
+
+            if args.loss_scale == 0:
+                model, optimizer = amp.initialize(model, optimizer, opt_level=args.fp16_opt_level)
+            else:
+                model, optimizer = amp.initialize(model, optimizer,
+                                                opt_level=args.fp16_opt_level, loss_scale=args.loss_scale)
+        if args.local_rank != -1:
+            if args.fp16_opt_level == 'O2':
+                try:
+                    import apex
+                    model = apex.parallel.DistributedDataParallel(model, delay_allreduce=True)
+                except ImportError:
+                    model = torch.nn.parallel.DistributedDataParallel(model, find_unused_parameters=True)
+            else:
+                model = torch.nn.parallel.DistributedDataParallel(model, find_unused_parameters=True)
+
+        if n_gpu > 1:
+            model = torch.nn.DataParallel(model)
+
+        global_step = 0
+
         logger.info("***** Running training *****")
         if train_examples:
             logger.info("  Num orig examples = %d", len(train_examples))
