@@ -21,7 +21,6 @@ from transformers.optimization import AdamW, get_linear_schedule_with_warmup
 parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, parent_dir)
 
-from modeling_reader import IterBertForQuestionAnsweringConfidence, BertForQuestionAnsweringConfidence
 from oss_utils import torch_save_to_oss, load_buffer_from_oss
 
 logger = logging.getLogger(__name__)
@@ -142,6 +141,8 @@ def main():
                         type=float, default=1.0,
                         help="If you would like to change the two losses, please change the lambda scale.")
 
+    parser.add_argument('--model_version', default='v1', type=str)
+
     # Save checkpoints more
     parser.add_argument('--save_gran',
                         type=str, default="10,3",
@@ -215,6 +216,17 @@ def main():
             "Output directory () already exists and is not empty.")
     if not os.path.exists(args.output_dir):
         os.makedirs(args.output_dir)
+
+    if args.model_verison == 'v1':
+        from modeling_reader import IterBertForQuestionAnsweringConfidence
+    elif args.model_version == 'v2':
+        from modeling_reader import IterBertForQuestionAnsweringConfidenceV2 as IterBertForQuestionAnsweringConfidence
+    elif args.model_version == 'v3':
+        from modeling_reader import IterBertForQuestionAnsweringConfidenceV3 as IterBertForQuestionAnsweringConfidence
+    elif args.model_version == 'v4':
+        from modeling_reader import IterBertForQuestionAnsweringConfidenceV4 as IterBertForQuestionAnsweringConfidence
+    else:
+        raise RuntimeError(f"No compatible model version: {args.model_version}")
 
     # Prepare model and tokenizer
     tokenizer = AutoTokenizer.from_pretrained(args.bert_model, do_lower_case=args.do_lower_case)

@@ -127,3 +127,43 @@ class IterBertModelForRetrieval(IterBertModel):
         ], dim=-1)))
 
         return retrieve_o
+
+
+class IterBertModelForRetrievalV2(IterBertModel):
+    model_prefix = 'iter_bert_retrieval_v2'
+
+    def __init__(self, config: IterBertPreTrainedConfig):
+        super().__init__(config)
+
+        self.retrieval_sum = nn.Linear(config.hidden_size, config.hidden_size)
+
+        self.iter_bert_dropout = nn.Dropout(config.hidden_dropout_prob)
+
+    def forward(self, input_ids, attention_mask=None, token_type_ids=None, **kwargs):
+
+        batch, seq_len = input_ids.size()
+
+        # `token_type_ids`: [0,0,0,1,1,1,1,0,0,0]
+        # `attention_mask`: [1,1,1,1,1,1,1,0,0,0]
+        # `1` for true token and `0` for mask
+        question_mask = (1 - token_type_ids) * attention_mask
+        passage_mask = token_type_ids * attention_mask
+
+        seq_output = self.bert(input_ids=input_ids,
+                               attention_mask=attention_mask,
+                               token_type_ids=token_type_ids)[0]
+
+        cls_h = seq_output[:, :1]
+        question_mask = question_mask.to(seq_output.dtype)
+        passage_mask = passage_mask.to(seq_output.dtype)
+        attention_mask = attention_mask.to(seq_output.dtype)
+
+        q_hidden = self.query(cls_h, seq_output.unsqueeze(1), 1 - question_mask.unsqueeze(1),
+                              aligned=True, residual=False).view(batch, seq_output.size(-1))
+
+        retrieve_q = self.retrieval_sum(q_hidden)
+        retrieve_p, _ = layers.weighted_sum(retrieve_q, seq_output, 1 - passage_mask)
+
+        retrieve_o = self.iter_bert_dropout(self.retrieval_o(torch.cat([q_hidden, retrieve_p], dim=-1)))
+
+        return retrieve_o
