@@ -149,6 +149,7 @@ def main():
                         help='"10,5" means saving a checkpoint every 1/10 of the total updates,'
                              'but start saving from the 5th attempt')
     parser.add_argument('--oss_cache_dir', default=None, type=str)
+    parser.add_argument("--oss_pretrain", default=None, type=str)
     parser.add_argument('--cache_dir', default=None, type=str)
     parser.add_argument('--dist', default=False, action='store_true')
 
@@ -231,10 +232,17 @@ def main():
     # Prepare model and tokenizer
     tokenizer = AutoTokenizer.from_pretrained(args.bert_model, do_lower_case=args.do_lower_case)
 
+    if args.oss_pretrain is not None:
+        logger.info(f"Loading pre-trained model state dict from oss: {args.oss_pretrain}")
+        pretrain_state_dict = torch.load(load_buffer_from_oss(args.oss_pretrain), map_location='cpu')
+    else:
+        pretrain_state_dict = None
+
     model = IterBertForQuestionAnsweringConfidence.from_pretrained(args.bert_model,
                                                                    num_labels=4,
                                                                    no_masking=args.no_masking,
-                                                                   lambda_scale=args.lambda_scale)
+                                                                   lambda_scale=args.lambda_scale,
+                                                                   state_dict=pretrain_state_dict)
 
     model.to(device)
 
