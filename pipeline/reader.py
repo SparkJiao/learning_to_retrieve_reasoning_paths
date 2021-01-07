@@ -4,7 +4,7 @@ import torch
 from transformers import BertTokenizer
 
 from reader.modeling_reader import BertForQuestionAnsweringConfidence, RobertaForQuestionAnsweringConfidence, IterBertForQuestionAnsweringConfidence, \
-    IterBertForQuestionAnsweringConfidenceV2, IterBertForQuestionAnsweringConfidenceV3
+    IterBertForQuestionAnsweringConfidenceV2, IterBertForQuestionAnsweringConfidenceV3, IterBertForQuestionAnsweringConfidenceV4
 from reader.rc_utils import read_squad_style_hotpot_examples, \
     convert_examples_to_features, write_predictions_yes_no_beam, convert_examples_to_features_yes_no_roberta
 
@@ -23,7 +23,9 @@ class Reader:
 
         print('initializing Reader...', flush=True)
         # self.model = IterBertForQuestionAnsweringConfidence.from_pretrained(args.reader_path, num_labels=4, no_masking=True)
-        self.model = IterBertForQuestionAnsweringConfidenceV2.from_pretrained(args.reader_path, num_labels=4, no_masking=True)
+        # self.model = IterBertForQuestionAnsweringConfidenceV2.from_pretrained(args.reader_path, num_labels=4, no_masking=True)
+        # self.model = IterBertForQuestionAnsweringConfidenceV3.from_pretrained(args.reader_path, num_labels=4, no_masking=True)
+        self.model = IterBertForQuestionAnsweringConfidenceV4.from_pretrained(args.reader_path, num_labels=4, no_masking=True)
         # self.model = BertForQuestionAnsweringConfidence.from_pretrained(args.reader_path,  num_labels=4, no_masking=True)
         # self.model = RobertaForQuestionAnsweringConfidence.from_pretrained(args.reader_path, num_labels=4, no_masking=True)
         self.tokenizer = BertTokenizer.from_pretrained(args.reader_path, do_lower_case=args.do_lower_case)

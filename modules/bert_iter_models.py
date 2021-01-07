@@ -136,6 +136,7 @@ class IterBertModelForRetrievalV2(IterBertModel):
         super().__init__(config)
 
         self.retrieval_sum = nn.Linear(config.hidden_size, config.hidden_size)
+        self.retrieval_o = nn.Linear(config.hidden_size * 2, config.hidden_size)
 
         self.iter_bert_dropout = nn.Dropout(config.hidden_dropout_prob)
 

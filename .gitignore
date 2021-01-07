@@ -16,4 +16,6 @@ tar_exclude_file
 data
 *pai.txt
 evaluation_results
+eval_cache
 models
+*pai.md

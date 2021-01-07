@@ -217,7 +217,7 @@ def main():
     if not os.path.exists(args.output_dir):
         os.makedirs(args.output_dir)
 
-    if args.model_verison == 'v1':
+    if args.model_version == 'v1':
         from modeling_reader import IterBertForQuestionAnsweringConfidence
     elif args.model_version == 'v2':
         from modeling_reader import IterBertForQuestionAnsweringConfidenceV2 as IterBertForQuestionAnsweringConfidence
