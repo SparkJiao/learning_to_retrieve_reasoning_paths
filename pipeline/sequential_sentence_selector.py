@@ -119,6 +119,8 @@ class SequentialSentenceSelector:
                 for title in e.titles:
                     if title not in sfs and len(sfs) < 2:
                         sfs[title] = [0]
+                        # Hack by Fangkai  2021/1/9
+                        # sfs[title] = [[0]]
 
                 output = {}
                 output['q_id'] = e.guid

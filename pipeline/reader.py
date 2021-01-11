@@ -25,9 +25,25 @@ class Reader:
         # self.model = IterBertForQuestionAnsweringConfidence.from_pretrained(args.reader_path, num_labels=4, no_masking=True)
         # self.model = IterBertForQuestionAnsweringConfidenceV2.from_pretrained(args.reader_path, num_labels=4, no_masking=True)
         # self.model = IterBertForQuestionAnsweringConfidenceV3.from_pretrained(args.reader_path, num_labels=4, no_masking=True)
-        self.model = IterBertForQuestionAnsweringConfidenceV4.from_pretrained(args.reader_path, num_labels=4, no_masking=True)
-        # self.model = BertForQuestionAnsweringConfidence.from_pretrained(args.reader_path,  num_labels=4, no_masking=True)
+        # self.model = IterBertForQuestionAnsweringConfidenceV4.from_pretrained(args.reader_path, num_labels=4, no_masking=True)
+        
         # self.model = RobertaForQuestionAnsweringConfidence.from_pretrained(args.reader_path, num_labels=4, no_masking=True)
+        
+        if args.reader_version == 'bert':
+            self.model = BertForQuestionAnsweringConfidence.from_pretrained(args.reader_path,  num_labels=4, no_masking=True)
+        elif args.reader_version == 'iter':
+            self.model = IterBertForQuestionAnsweringConfidence.from_pretrained(args.reader_path, num_labels=4, no_masking=True)
+        elif args.reader_version == 'iter_v2':
+            self.model = IterBertForQuestionAnsweringConfidenceV2.from_pretrained(args.reader_path, num_labels=4, no_masking=True)
+        elif args.reader_version == 'iter_v3':
+            self.model = IterBertForQuestionAnsweringConfidenceV3.from_pretrained(args.reader_path, num_labels=4, no_masking=True)
+        elif args.reader_version == 'iter_v4':
+            self.model = IterBertForQuestionAnsweringConfidenceV4.from_pretrained(args.reader_path, num_labels=4, no_masking=True)
+        elif args.reader_version == 'roberta':
+            self.model = RobertaForQuestionAnsweringConfidence.from_pretrained(args.reader_path, num_labels=4, no_masking=True)
+        else:
+            raise RuntimeError()
+
         self.tokenizer = BertTokenizer.from_pretrained(args.reader_path, do_lower_case=args.do_lower_case)
         self.device = device
         

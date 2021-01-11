@@ -8,11 +8,13 @@ from graph_retriever.utils import InputFeatures
 from graph_retriever.utils import tokenize_paragraph_transformers
 from graph_retriever.utils import GraphRetrieverConfig
 from graph_retriever.utils import expand_links
-from graph_retriever.modeling_graph_retriever import BertForGraphRetriever
-# from graph_retriever.modeling_graph_retriever_iter import BertForGraphRetriever
-from graph_retriever.modeling_graph_retriever_roberta import RobertaForGraphRetriever
+# from graph_retriever.modeling_graph_retriever import BertForGraphRetriever
+# from graph_retriever.modeling_graph_retriever_iter import BertForGraphRetriever, BertForGraphRetrieverV2
+# from graph_retriever.modeling_graph_retriever_roberta import RobertaForGraphRetriever
 
 from transformers import PreTrainedTokenizer, AutoTokenizer
+
+from oss_utils import load_buffer_from_oss
 
 from torch.utils.data import TensorDataset, DataLoader, SequentialSampler
 
@@ -197,9 +199,37 @@ class GraphRetriever:
         # self.tokenizer = BertTokenizer.from_pretrained(args.bert_model_graph_retriever,
         #                                                do_lower_case=args.do_lower_case)
         self.tokenizer = AutoTokenizer.from_pretrained(args.bert_model_graph_retriever)
-        model_state_dict = torch.load(args.graph_retriever_path)
-        self.model = BertForGraphRetriever.from_pretrained(args.bert_model_graph_retriever, state_dict=model_state_dict,
-                                                           graph_retriever_config=self.graph_retriever_config)
+        if args.graph_retriever_path[:4] == 'oss:':
+            model_state_dict = torch.load(load_buffer_from_oss(args.graph_retriever_path[4:]))
+        else:
+            model_state_dict = torch.load(args.graph_retriever_path)
+        # self.model = BertForGraphRetriever.from_pretrained(args.bert_model_graph_retriever, state_dict=model_state_dict,
+        #                                                    graph_retriever_config=self.graph_retriever_config)
+        # # self.model = BertForGraphRetrieverV2.from_pretrained(args.bert_model_graph_retriever, state_dict=model_state_dict,
+        #                                                     #  graph_retriever_config=self.graph_retriever_config)
+        if args.graph_retriever_version == 'bert':
+            from graph_retriever.modeling_graph_retriever import BertForGraphRetriever
+            
+            self.model = BertForGraphRetriever.from_pretrained(args.bert_model_graph_retriever, state_dict=model_state_dict,
+                                                               graph_retriever_config=self.graph_retriever_config)
+        elif args.graph_retriever_version == 'iter_v1':
+            from graph_retriever.modeling_graph_retriever_iter import BertForGraphRetriever
+
+            self.model = BertForGraphRetriever.from_pretrained(args.bert_model_graph_retriever, state_dict=model_state_dict,
+                                                               graph_retriever_config=self.graph_retriever_config)
+        elif args.graph_retriever_version == 'iter_v2':
+            from graph_retriever.modeling_graph_retriever_iter import BertForGraphRetrieverV2
+
+            self.model = BertForGraphRetrieverV2.from_pretrained(args.bert_model_graph_retriever, state_dict=model_state_dict,
+                                                                 graph_retriever_config=self.graph_retriever_config)
+        elif args.graph_retriever_version == 'roberta':
+            from graph_retriever.modeling_graph_retriever_roberta import RobertaForGraphRetriever
+
+            self.model = RobertaForGraphRetriever.from_pretrained(args.bert_model_graph_retriever, state_dict=model_state_dict,
+                                                                 graph_retriever_config=self.graph_retriever_config)
+        else:
+            raise RuntimeError()
+
         self.device = device
         self.model.to(self.device)
         self.model.eval()

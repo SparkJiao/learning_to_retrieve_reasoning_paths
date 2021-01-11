@@ -21,7 +21,7 @@ from transformers.optimization import AdamW, get_linear_schedule_with_warmup
 parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, parent_dir)
 
-from oss_utils import torch_save_to_oss, load_buffer_from_oss
+from oss_utils import torch_save_to_oss, load_buffer_from_oss, load_pretrain_from_oss
 
 logger = logging.getLogger(__name__)
 
@@ -234,7 +234,7 @@ def main():
 
     if args.oss_pretrain is not None:
         logger.info(f"Loading pre-trained model state dict from oss: {args.oss_pretrain}")
-        pretrain_state_dict = torch.load(load_buffer_from_oss(args.oss_pretrain), map_location='cpu')
+        pretrain_state_dict = torch.load(load_pretrain_from_oss(args.oss_pretrain), map_location='cpu')
     else:
         pretrain_state_dict = None
 

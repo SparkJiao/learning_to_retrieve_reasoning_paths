@@ -32,11 +32,13 @@ class ODQAEval:
                             type=str,
                             required=True,
                             help="Selector model path.")
+        parser.add_argument("--graph_retriever_version", type=str, default='bert')
         parser.add_argument("--reader_path",
                             default=None,
                             type=str,
                             required=True,
                             help="Reader model path.")
+        parser.add_argument("--reader_version", type=str, default='bert')
         parser.add_argument("--sequential_sentence_selector_path",
                             default=None,
                             type=str,

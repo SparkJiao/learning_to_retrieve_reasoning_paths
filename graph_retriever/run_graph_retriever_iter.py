@@ -13,7 +13,6 @@ import math
 
 import numpy as np
 import torch
-from oss_utils import torch_save_to_oss, load_buffer_from_oss
 from torch import distributed as dist
 from torch.utils.data import TensorDataset, DataLoader, RandomSampler, SequentialSampler
 from tqdm import tqdm
@@ -23,11 +22,11 @@ from transformers.optimization import AdamW, get_linear_schedule_with_warmup
 parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, parent_dir)
 
-from modeling_graph_retriever_iter import BertForGraphRetriever
 from utils import DataProcessor
 from utils import convert_examples_to_features
 from utils import save, load
 from utils import GraphRetrieverConfig
+from oss_utils import torch_save_to_oss, load_buffer_from_oss, load_pretrain_from_oss
 
 # except ImportError:
 #     from .modeling_graph_retriever_iter import BertForGraphRetriever
@@ -196,6 +195,8 @@ def main():
     parser.add_argument("--dist", default=False, action='store_true', help='use distributed training.')
     parser.add_argument("--save_steps", default=5000, type=int)
     parser.add_argument("--resume", default=None, type=int)
+    parser.add_argument("--oss_pretrain", default=None, type=str)
+    parser.add_argument("--model_version", default='v1', type=str)
 
     args = parser.parse_args()
 
@@ -279,17 +280,29 @@ def main():
 
     tokenizer = AutoTokenizer.from_pretrained(args.bert_model)
 
+    if args.model_version == 'v1':
+        from modeling_graph_retriever_iter import BertForGraphRetriever
+    elif args.model_version == 'v2':
+        from modeling_graph_retriever_iter import BertForGraphRetrieverV2 as BertForGraphRetriever
+    else:
+        raise RuntimeError()
+
     ##############################
     # Training                   #
     ##############################
     if do_train:
+        _model_state_dict = None
+        if args.oss_pretrain is not None:
+            _model_state_dict = torch.load(
+                load_pretrain_from_oss(args.oss_pretrain), map_location='cpu')
+            logger.info(f"Loaded pretrained model from {args.oss_pretrain}")
+
         if args.resume is not None:
             _model_state_dict = torch.load(
                 load_buffer_from_oss(os.path.join(args.oss_cache_dir, f"pytorch_model_{args.resume}.bin")),
                 map_location='cpu'
             )
-        else:
-            _model_state_dict = None
+        
 
         model = BertForGraphRetriever.from_pretrained(args.bert_model,
                                                       graph_retriever_config=graph_retriever_config,
@@ -449,7 +462,7 @@ def main():
                 else:
                     train_sampler = RandomSampler(train_data)
                 train_dataloader = DataLoader(train_data, sampler=train_sampler, batch_size=args.train_batch_size,
-                                              pin_memory=True)
+                                              pin_memory=True, num_workers=8)
 
                 if args.local_rank != -1:
                     train_dataloader.sampler.set_epoch(epc)
