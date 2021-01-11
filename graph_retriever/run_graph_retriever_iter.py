@@ -197,6 +197,7 @@ def main():
     parser.add_argument("--resume", default=None, type=int)
     parser.add_argument("--oss_pretrain", default=None, type=str)
     parser.add_argument("--model_version", default='v1', type=str)
+    parser.add_argument("--disable_rnn_layer_norm", default=False, action='store_true')
 
     args = parser.parse_args()
 
@@ -273,7 +274,9 @@ def main():
                                                   eval_chunk=args.eval_chunk,
                                                   tagme=args.tagme,
                                                   topk=args.topk,
-                                                  db_save_path=args.db_save_path)
+                                                  db_save_path=args.db_save_path,
+
+                                                  disable_rnn_layer_norm=args.disable_rnn_layer_norm)
 
     logger.info(graph_retriever_config)
     logger.info(args)
@@ -284,6 +287,8 @@ def main():
         from modeling_graph_retriever_iter import BertForGraphRetriever
     elif args.model_version == 'v2':
         from modeling_graph_retriever_iter import BertForGraphRetrieverV2 as BertForGraphRetriever
+    elif args.model_version == 'v3':
+        from modeling_graph_retriever_iter import BertForGraphRetrieverV3 as BertForGraphRetriever
     else:
         raise RuntimeError()
 

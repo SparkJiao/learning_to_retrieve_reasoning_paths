@@ -135,6 +135,9 @@ class GraphRetrieverConfig:
                     '- Tagme: ' + str(self.tagme) + '\n' \
                     '- Top K: ' + str(self.topk) + '\n' \
                     '- DB save path: ' + str(self.db_save_path) + '\n' \
+                    '\n' \
+                    '@@ Added by Fangkai\n' \
+                    '- Disable RNN layer norm: ' + str(self.disable_rnn_layer_norm) + '\n' \
                     '#########################################\n'
 
         return configStr
