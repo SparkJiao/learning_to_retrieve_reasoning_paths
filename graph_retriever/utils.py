@@ -38,7 +38,9 @@ class GraphRetrieverConfig:
                  eval_chunk: int,
                  tagme: bool,
                  topk: int,
-                 db_save_path: str):
+                 db_save_path: str,
+
+                 disable_rnn_layer_norm: bool = False):
 
         # General
         self.example_limit = example_limit
@@ -100,6 +102,9 @@ class GraphRetrieverConfig:
         self.topk = topk
 
         self.db_save_path = db_save_path
+
+        # Added by Fangkai
+        self.disable_rnn_layer_norm = disable_rnn_layer_norm
 
     def __str__(self):
         configStr = '\n\n' \

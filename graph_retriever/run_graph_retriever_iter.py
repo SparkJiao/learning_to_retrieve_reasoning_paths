@@ -302,7 +302,6 @@ def main():
                 load_buffer_from_oss(os.path.join(args.oss_cache_dir, f"pytorch_model_{args.resume}.bin")),
                 map_location='cpu'
             )
-        
 
         model = BertForGraphRetriever.from_pretrained(args.bert_model,
                                                       graph_retriever_config=graph_retriever_config,
@@ -345,7 +344,7 @@ def main():
             logger.info("Finished.")
             return
 
-        # len(train_examples) and len(train_features) can be different, depedning on the redundant setting
+        # len(train_examples) and len(train_features) can be different, depending on the redundant setting
         num_train_steps = int(
             len(train_features) / args.train_batch_size / args.gradient_accumulation_steps * args.num_train_epochs)
 
@@ -499,10 +498,9 @@ def main():
                     for i in range(B):
                         output_masks[i, :num_steps[i], -1] = 1.0  # for EOE
 
-                        _tmp = num_steps[i].item() - 1
-                        target[i, :_tmp, :_tmp] = torch.zeros(_tmp, _tmp).fill_(POSITIVE)
-                        # for j in range(num_steps[i].item() - 1):
-                        #     target[i, j, j].fill_(POSITIVE)
+                        for j in range(num_steps[i].item() - 1):
+                            target[i, j, j].fill_(POSITIVE)
+
                         target[i, num_steps[i] - 1, -1].fill_(POSITIVE)
                     target = target.to(device)
 

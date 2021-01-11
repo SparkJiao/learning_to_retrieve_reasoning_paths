@@ -487,10 +487,9 @@ def main():
                     for i in range(B):
                         output_masks[i, :num_steps[i], -1] = 1.0  # for EOE
 
-                        _tmp = num_steps[i].item() - 1
-                        target[i, :_tmp, :_tmp] = torch.zeros(_tmp, _tmp).fill_(POSITIVE)
-                        # for j in range(num_steps[i].item() - 1):
-                        #     target[i, j, j].fill_(POSITIVE)
+                        for j in range(num_steps[i].item() - 1):
+                            target[i, j, j].fill_(POSITIVE)
+
                         target[i, num_steps[i] - 1, -1].fill_(POSITIVE)
                     target = target.to(device)
 
