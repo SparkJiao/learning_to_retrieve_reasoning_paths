@@ -33,6 +33,7 @@ class ODQAEval:
                             required=True,
                             help="Selector model path.")
         parser.add_argument("--graph_retriever_version", type=str, default='bert')
+        parser.add_argument("--disable_rnn_layer_norm", default=False, action='store_true')
         parser.add_argument("--reader_path",
                             default=None,
                             type=str,

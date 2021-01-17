@@ -193,9 +193,12 @@ class GraphRetriever:
                                                            eval_chunk=args.eval_chunk,
                                                            tagme=args.tagme,
                                                            topk=args.topk,
-                                                           db_save_path=None)
+                                                           db_save_path=None,
+
+                                                           disable_rnn_layer_norm=args.disable_rnn_layer_norm)
 
         print('initializing GraphRetriever...', flush=True)
+        print(self.graph_retriever_config)
         # self.tokenizer = BertTokenizer.from_pretrained(args.bert_model_graph_retriever,
         #                                                do_lower_case=args.do_lower_case)
         self.tokenizer = AutoTokenizer.from_pretrained(args.bert_model_graph_retriever)
