@@ -222,6 +222,11 @@ class GraphRetriever:
 
             self.model = BertForGraphRetrieverV2.from_pretrained(args.bert_model_graph_retriever, state_dict=model_state_dict,
                                                                  graph_retriever_config=self.graph_retriever_config)
+        elif args.graph_retriever_version == 'iter_v3':
+            from graph_retriever.modeling_graph_retriever_iter import BertForGraphRetrieverV3
+
+            self.model = BertForGraphRetrieverV3.from_pretrained(args.bert_model_graph_retriever, state_dict=model_state_dict,
+                                                                 graph_retriever_config=self.graph_retriever_config)
         elif args.graph_retriever_version == 'roberta':
             from graph_retriever.modeling_graph_retriever_roberta import RobertaForGraphRetriever
 
