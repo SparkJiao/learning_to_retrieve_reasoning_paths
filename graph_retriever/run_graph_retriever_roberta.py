@@ -2,34 +2,38 @@
 from __future__ import division
 from __future__ import print_function
 
-import os
-import logging
 import argparse
-import random
-from tqdm import tqdm, trange
+import gc
 import json
-import oss2
-import io
+import logging
+import math
+import os
+import random
+import sys
 
 import numpy as np
 import torch
+from torch import distributed as dist
 from torch.utils.data import TensorDataset, DataLoader, RandomSampler, SequentialSampler
-from torch import distributed as dst
+from tqdm import tqdm
+from transformers import AutoTokenizer
+from transformers.optimization import AdamW, get_linear_schedule_with_warmup
 
-from transformers import AutoTokenizer, AdamW, get_linear_schedule_with_warmup
+parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, parent_dir)
 
-from modeling_graph_retriever_roberta import RobertaForGraphRetriever
 from utils import DataProcessor
 from utils import convert_examples_to_features
 from utils import save, load
 from utils import GraphRetrieverConfig
-from oss_utils import torch_save_to_oss, set_bucket_dir
-
+from oss_utils import torch_save_to_oss, load_buffer_from_oss, load_pretrain_from_oss
 
 logging.basicConfig(format='%(asctime)s - %(levelname)s - %(name)s -   %(message)s',
                     datefmt='%m/%d/%Y %H:%M:%S',
                     level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+oss_features_cache_dir = 'roberta_cached_features/'
 
 
 def main():
@@ -45,7 +49,6 @@ def main():
                         type=str,
                         required=True,
                         help="The output directory where the model predictions and checkpoints will be written.")
-    parser.add_argument("--oss_dir", type=str, default="graph_retriever")
     parser.add_argument('--task',
                         type=str,
                         default=None,
@@ -74,10 +77,6 @@ def main():
                         default=5e-5,
                         type=float,
                         help="The initial learning rate for Adam. (def: 5e-5)")
-    # AdamW
-    parser.add_argument("--adam_betas", default="(0.9, 0.999)", type=str)
-    parser.add_argument("--adam_epsilon", default=1e-6, type=float)
-    parser.add_argument("--no_bias_correction", default=False, action="store_true")
     parser.add_argument("--num_train_epochs",
                         default=5.0,
                         type=float,
@@ -111,7 +110,8 @@ def main():
     parser.add_argument("--neg_chunk",
                         default=8,
                         type=int,
-                        help="The chunk size of negative examples during training (to reduce GPU memory consumption with negative sampling)")
+                        help="The chunk size of negative examples during training (to "
+                             "reduce GPU memory consumption with negative sampling)")
     parser.add_argument("--eval_chunk",
                         default=100000,
                         type=int,
@@ -181,48 +181,49 @@ def main():
 
     parser.add_argument("--db_save_path", default=None, type=str,
                         help="File path to DB")
-
     parser.add_argument("--fp16", default=False, action='store_true')
     parser.add_argument("--fp16_opt_level", default="O1", type=str)
-
     parser.add_argument("--do_label", default=False, action='store_true',
                         help="For pre-processing features only.")
-    parser.add_argument("--cached_features", default=None)
-    parser.add_argument("--cache_dir", default=None)
+
+    parser.add_argument("--oss_cache_dir", default=None, type=str)
+    parser.add_argument("--cache_dir", default=None, type=str)
+    parser.add_argument("--dist", default=False, action='store_true', help='use distributed training.')
+    parser.add_argument("--save_steps", default=5000, type=int)
+    parser.add_argument("--resume", default=None, type=int)
+    parser.add_argument("--oss_pretrain", default=None, type=str)
+    parser.add_argument("--model_version", default='v1', type=str)
+    parser.add_argument("--disable_rnn_layer_norm", default=False, action='store_true')
 
     args = parser.parse_args()
 
-    torch.distributed.init_process_group(backend='nccl')
-    print(f"local rank: {args.local_rank}")
-    print(f"global rank: {torch.distributed.get_rank()}")
-    print(f"world size: {torch.distributed.get_world_size()}")
+    if args.dist:
+        dist.init_process_group(backend='nccl')
+        print(f"local rank: {args.local_rank}")
+        print(f"global rank: {dist.get_rank()}")
+        print(f"world size: {dist.get_world_size()}")
 
     if args.local_rank == -1 or args.no_cuda:
-        device = torch.device(
-            "cuda" if torch.cuda.is_available() and not args.no_cuda else "cpu")
+        device = torch.device("cuda" if torch.cuda.is_available() and not args.no_cuda else "cpu")
         n_gpu = torch.cuda.device_count()
     else:
         torch.cuda.set_device(args.local_rank)
         device = torch.device("cuda", args.local_rank)
         n_gpu = 1
-        # Initializes the distributed backend which will take care of sychronizing nodes/GPUs
-        torch.distributed.init_process_group(backend='nccl')
+        # Initializes the distributed backend which will take care of synchronizing nodes/GPUs
+        dist.init_process_group(backend='nccl')
 
-    global_rank = torch.distributed.get_rank()
-    world_size = torch.distributed.get_world_size()
-    if world_size > 1:
-        args.local_rank = global_rank
-
-    # device = torch.device("cuda" if torch.cuda.is_available()
-        #   and not args.no_cuda else "cpu")
-    # n_gpu = torch.cuda.device_count()
+    if args.dist:
+        global_rank = dist.get_rank()
+        world_size = dist.get_world_size()
+        if world_size > 1:
+            args.local_rank = global_rank
 
     if args.gradient_accumulation_steps < 1:
         raise ValueError("Invalid gradient_accumulation_steps parameter: {}, should be >= 1".format(
             args.gradient_accumulation_steps))
 
-    args.train_batch_size = int(
-        args.train_batch_size / args.gradient_accumulation_steps)
+    args.train_batch_size = int(args.train_batch_size / args.gradient_accumulation_steps)
 
     random.seed(args.seed)
     np.random.seed(args.seed)
@@ -234,8 +235,7 @@ def main():
         do_train = True
 
         if os.path.exists(args.output_dir) and os.listdir(args.output_dir):
-            raise ValueError(
-                "Output directory ({}) already exists and is not empty.".format(args.output_dir))
+            raise ValueError("Output directory ({}) already exists and is not empty.".format(args.output_dir))
         if args.local_rank in [-1, 0]:
             os.makedirs(args.output_dir, exist_ok=True)
 
@@ -245,10 +245,6 @@ def main():
     else:
         raise ValueError('One of train_file_path: {} or dev_file_path: {} must be non-None'.format(args.train_file_path,
                                                                                                    args.dev_file_path))
-
-    if args.local_rank in [-1, 0]:
-        set_bucket_dir(args.oss_dir)
-        torch_save_to_oss(args, "/training_args.bin")
 
     processor = DataProcessor()
 
@@ -274,157 +270,209 @@ def main():
                                                   eval_chunk=args.eval_chunk,
                                                   tagme=args.tagme,
                                                   topk=args.topk,
-                                                  db_save_path=args.db_save_path)
+                                                  db_save_path=args.db_save_path,
+
+                                                  disable_rnn_layer_norm=args.disable_rnn_layer_norm)
 
     logger.info(graph_retriever_config)
+    logger.info(args)
 
     tokenizer = AutoTokenizer.from_pretrained(args.bert_model)
+
+    if args.model_version == 'roberta':
+        from modeling_graph_retriever_roberta import RobertaForGraphRetriever
+    elif args.model_version == 'v3':
+        from modeling_graph_retriever_roberta import RobertaForGraphRetrieverIterV3 as RobertaForGraphRetriever
+    else:
+        raise RuntimeError()
 
     ##############################
     # Training                   #
     ##############################
     if do_train:
+        _model_state_dict = None
+        if args.oss_pretrain is not None:
+            _model_state_dict = torch.load(
+                load_pretrain_from_oss(args.oss_pretrain), map_location='cpu')
+            logger.info(f"Loaded pretrained model from {args.oss_pretrain}")
+
+        if args.resume is not None:
+            _model_state_dict = torch.load(
+                load_buffer_from_oss(os.path.join(args.oss_cache_dir, f"pytorch_model_{args.resume}.bin")),
+                map_location='cpu'
+            )
+
         model = RobertaForGraphRetriever.from_pretrained(args.bert_model,
-                                                         # cache_dir=PYTORCH_PRETRAINED_BERT_CACHE / 'distributed_{}'.format(
-                                                         #     -1),
-                                                         graph_retriever_config=graph_retriever_config)
+                                                         graph_retriever_config=graph_retriever_config,
+                                                         state_dict=_model_state_dict)
 
         model.to(device)
 
         global_step = 0
-        nb_tr_steps = 0
-        tr_loss = 0
 
         POSITIVE = 1.0
         NEGATIVE = 0.0
 
-        train_examples = None
-        num_train_steps = None
+        _cache_file_name = f"cache_roberta_train_{args.max_seq_length}_{args.max_para_num}"
+        _examples_cache_file_name = f"examples_{_cache_file_name}"
+        _features_cache_file_name = f"features_{_cache_file_name}"
 
         # Load training examples
-        if args.cached_features is not None:
-            train_features = torch.load(args.cached_features)
-        else:
-            train_examples = processor.get_train_examples(
-                graph_retriever_config)
+        logger.info(f"Loading training examples and features.")
+        try:
+            if args.cache_dir is not None and os.path.exists(os.path.join(args.cache_dir, _features_cache_file_name)):
+                logger.info(
+                    f"Loading pre-processed features from {os.path.join(args.cache_dir, _features_cache_file_name)}")
+                train_features = torch.load(os.path.join(args.cache_dir, _features_cache_file_name))
+            else:
+                # train_examples = torch.load(load_buffer_from_oss(os.path.join(oss_features_cache_dir,
+                #                                                               _examples_cache_file_name)))
+                train_features = torch.load(load_buffer_from_oss(os.path.join(oss_features_cache_dir,
+                                                                              _features_cache_file_name)))
+                logger.info(f"Pre-processed features are loaded from oss: "
+                            f"{os.path.join(oss_features_cache_dir, _features_cache_file_name)}")
+        except:
+            train_examples = processor.get_train_examples(graph_retriever_config)
             train_features = convert_examples_to_features(
                 train_examples, args.max_seq_length, args.max_para_num, graph_retriever_config, tokenizer, train=True)
-            if args.local_rank in [-1, 0] and args.cache_dir is not None:
-                # cached_features = os.path.join(
-                #     args.cache_dir, "torch_cached_features")
-                # torch.save(train_features, cached_features)
-                cache_feature_file = os.path.join(args.cache_dir, f"torch_cached_features_retriever_{args.max_seq_length}")
-                torch_save_to_oss(train_features, cache_feature_file)
-                logger.info("Done")
-                return
+            logger.info(f"Saving pre-processed features into oss: {oss_features_cache_dir}")
+            torch_save_to_oss(train_examples, os.path.join(oss_features_cache_dir, _examples_cache_file_name))
+            torch_save_to_oss(train_features, os.path.join(oss_features_cache_dir, _features_cache_file_name))
 
-        # len(train_examples) and len(train_features) can be different, depedning on the redundant setting
+        if args.do_label:
+            logger.info("Finished.")
+            return
+
+        # len(train_examples) and len(train_features) can be different, depending on the redundant setting
         num_train_steps = int(
             len(train_features) / args.train_batch_size / args.gradient_accumulation_steps * args.num_train_epochs)
 
         # Prepare optimizer
         param_optimizer = list(model.named_parameters())
-        no_decay = ['bias', 'LayerNorm.bias', 'LayerNorm.weight']
+        no_decay = ['bias', 'LayerNorm.bias', 'LayerNorm.weight', 'layer_norm']
         optimizer_grouped_parameters = [
-            {'params': [p for n, p in param_optimizer if not any(
-                nd in n for nd in no_decay)], 'weight_decay': 0.01},
-            {'params': [p for n, p in param_optimizer if any(
-                nd in n for nd in no_decay)], 'weight_decay': 0.0}
+            {'params': [p for n, p in param_optimizer if not any(nd in n for nd in no_decay)], 'weight_decay': 0.01},
+            {'params': [p for n, p in param_optimizer if any(nd in n for nd in no_decay)], 'weight_decay': 0.0}
         ]
         t_total = num_train_steps
         if args.local_rank != -1:
-            t_total = t_total // dst.get_world_size()
+            t_total = t_total // dist.get_world_size()
 
-        optimizer = AdamW(optimizer_grouped_parameters, lr=args.learning_rate,
-                          betas=eval(args.adam_betas), eps=args.adam_epsilon,
-                          correct_bias=(not args.no_bias_correction))
-        scheduler = get_linear_schedule_with_warmup(
-            optimizer, int(t_total * args.warmup_proportion), t_total)
+        optimizer = AdamW(optimizer_grouped_parameters, betas=(0.9, 0.98),
+                          lr=args.learning_rate)
+        scheduler = get_linear_schedule_with_warmup(optimizer, int(t_total * args.warmup_proportion), t_total)
 
         logger.info(optimizer)
-
         if args.fp16:
             from apex import amp
+            amp.register_half_function(torch, "einsum")
 
-            model, optimizer = amp.initialize(
-                model, optimizer, opt_level=args.fp16_opt_level)
+            model, optimizer = amp.initialize(model, optimizer, opt_level=args.fp16_opt_level)
 
         if args.local_rank != -1:
             if args.fp16_opt_level == 'O2':
                 try:
                     import apex
-                    model = apex.parallel.DistributedDataParallel(
-                        model, delay_allreduce=True)
+                    model = apex.parallel.DistributedDataParallel(model, delay_allreduce=True)
                 except ImportError:
-                    model = torch.nn.parallel.DistributedDataParallel(
-                        model, find_unused_parameters=True)
+                    model = torch.nn.parallel.DistributedDataParallel(model, find_unused_parameters=True)
             else:
-                model = torch.nn.parallel.DistributedDataParallel(
-                    model, find_unused_parameters=True)
+                model = torch.nn.parallel.DistributedDataParallel(model, find_unused_parameters=True)
 
         if n_gpu > 1:
             model = torch.nn.DataParallel(model)
 
+        if args.resume is not None:
+            _amp_state_dict = os.path.join(args.oss_cache_dir, f"amp_{args.resume}.bin")
+            _optimizer_state_dict = os.path.join(args.oss_cache_dir, f"optimizer_{args.resume}.pt")
+            _scheduler_state_dict = os.path.join(args.oss_cache_dir, f"scheduler_{args.resume}.pt")
+
+            amp.load_state_dict(torch.load(load_buffer_from_oss(_amp_state_dict)))
+            optimizer.load_state_dict(torch.load(load_buffer_from_oss(_optimizer_state_dict)))
+            scheduler.load_state_dict(torch.load(load_buffer_from_oss(_scheduler_state_dict)))
+
+            logger.info(f"Loaded resumed state dict of step {args.resume}")
+
         logger.info("***** Running training *****")
         logger.info("  Num examples = %d", len(train_features))
-        logger.info("  Batch size = %d", args.train_batch_size)
-        logger.info("  Num steps = %d", num_train_steps)
+        logger.info("  Instantaneous batch size per GPU = %d", args.train_batch_size)
+        logger.info(
+            "  Total train batch size (w. parallel, distributed & accumulation) = %d",
+            args.train_batch_size
+            * args.gradient_accumulation_steps
+            * (dist.get_world_size() if args.local_rank != -1 else 1),
+        )
+        logger.info("  Gradient Accumulation steps = %d", args.gradient_accumulation_steps)
+        logger.info("  Total optimization steps = %d", t_total)
 
         model.train()
         epc = 0
+        # test
+        if args.local_rank in [-1, 0]:
+            if args.fp16:
+                amp_file = os.path.join(args.oss_cache_dir, f"amp_{global_step}.bin")
+                torch_save_to_oss(amp.state_dict(), amp_file)
+            optimizer_file = os.path.join(args.oss_cache_dir, f"optimizer_{global_step}.pt")
+            torch_save_to_oss(optimizer.state_dict(), optimizer_file)
+            scheduler_file = os.path.join(args.oss_cache_dir, f"scheduler_{global_step}.pt")
+            torch_save_to_oss(scheduler.state_dict(), scheduler_file)
+
+        tr_loss = 0
         for _ in range(int(args.num_train_epochs)):
             logger.info('Epoch ' + str(epc + 1))
 
             TOTAL_NUM = len(train_features)
             train_start_index = 0
-            CHUNK_NUM = 10
+            CHUNK_NUM = 8
             train_chunk = TOTAL_NUM // CHUNK_NUM
             chunk_index = 0
 
             random.shuffle(train_features)
 
             save_retry = False
-
             while train_start_index < TOTAL_NUM:
-                train_end_index = min(
-                    train_start_index + train_chunk - 1, TOTAL_NUM - 1)
+                train_end_index = min(train_start_index + train_chunk - 1, TOTAL_NUM - 1)
                 chunk_len = train_end_index - train_start_index + 1
+
+                if args.resume is not None and global_step < args.resume:
+                    _chunk_steps = int(math.ceil(chunk_len * 1.0
+                                                 / args.train_batch_size
+                                                 / (1 if args.local_rank == -1 else dist.get_world_size())))
+                    _chunk_steps = _chunk_steps // args.gradient_accumulation_steps
+                    if global_step + _chunk_steps <= args.resume:
+                        global_step += _chunk_steps
+                        train_start_index = train_end_index + 1
+                        continue
 
                 train_features_ = train_features[train_start_index:train_start_index + chunk_len]
 
-                all_input_ids = torch.tensor(
-                    [f.input_ids for f in train_features_], dtype=torch.long)
-                all_input_masks = torch.tensor(
-                    [f.input_masks for f in train_features_], dtype=torch.long)
-                all_segment_ids = torch.tensor(
-                    [f.segment_ids for f in train_features_], dtype=torch.long)
-                all_output_masks = torch.tensor(
-                    [f.output_masks for f in train_features_], dtype=torch.float)
-                all_num_paragraphs = torch.tensor(
-                    [f.num_paragraphs for f in train_features_], dtype=torch.long)
-                all_num_steps = torch.tensor(
-                    [f.num_steps for f in train_features_], dtype=torch.long)
+                all_input_ids = torch.tensor([f.input_ids for f in train_features_], dtype=torch.long)
+                all_input_masks = torch.tensor([f.input_masks for f in train_features_], dtype=torch.long)
+                all_segment_ids = torch.tensor([f.segment_ids for f in train_features_], dtype=torch.long)
+                all_output_masks = torch.tensor([f.output_masks for f in train_features_], dtype=torch.float)
+                all_num_paragraphs = torch.tensor([f.num_paragraphs for f in train_features_], dtype=torch.long)
+                all_num_steps = torch.tensor([f.num_steps for f in train_features_], dtype=torch.long)
                 train_data = TensorDataset(all_input_ids, all_input_masks, all_segment_ids, all_output_masks,
                                            all_num_paragraphs, all_num_steps)
 
                 if args.local_rank != -1:
-                    train_sampler = torch.utils.data.DistributedSampler(
-                        train_data)
+                    train_sampler = torch.utils.data.DistributedSampler(train_data)
                 else:
                     train_sampler = RandomSampler(train_data)
-
-                train_dataloader = DataLoader(
-                    train_data, sampler=train_sampler, batch_size=args.train_batch_size,
-                    num_workers=4, pin_memory=True)
+                train_dataloader = DataLoader(train_data, sampler=train_sampler, batch_size=args.train_batch_size,
+                                              pin_memory=True, num_workers=8)
 
                 if args.local_rank != -1:
                     train_dataloader.sampler.set_epoch(epc)
 
-                tr_loss = 0
-                nb_tr_examples, nb_tr_steps = 0, 0
-                logger.info('Examples from ' + str(train_start_index) +
-                            ' to ' + str(train_end_index))
-                for step, batch in enumerate(tqdm(train_dataloader, desc="Iteration")):
+                logger.info('Examples from ' + str(train_start_index) + ' to ' + str(train_end_index))
+                for step, batch in enumerate(tqdm(train_dataloader, desc="Iteration",
+                                                  disable=args.local_rank not in [-1, 0])):
+                    if args.resume is not None and global_step < args.resume:
+                        if (step + 1) % args.gradient_accumulation_steps == 0:
+                            global_step += 1
+                        continue
+
                     input_masks = batch[1]
                     batch_max_len = input_masks.sum(dim=2).max().item()
 
@@ -434,25 +482,18 @@ def main():
                     num_steps = batch[5]
                     batch_max_steps = num_steps.max().item()
 
-                    output_masks_cpu = (batch[3])[
-                        :, :batch_max_steps, :batch_max_para_num + 1]
+                    # output_masks_cpu = (batch[3])[:, :batch_max_steps, :batch_max_para_num + 1]
 
                     batch = tuple(t.to(device) for t in batch)
-                    input_ids, input_masks, segment_ids, output_masks, _, __ = batch
+                    input_ids, input_masks, segment_ids, output_masks, _, _ = batch
                     B = input_ids.size(0)
 
-                    input_ids = input_ids[:,
-                                          :batch_max_para_num, :batch_max_len]
-                    input_masks = input_masks[:,
-                                              :batch_max_para_num, :batch_max_len]
-                    segment_ids = segment_ids[:,
-                                              :batch_max_para_num, :batch_max_len]
-                    # 1 for EOE
-                    output_masks = output_masks[:,
-                                                :batch_max_steps, :batch_max_para_num + 1]
+                    input_ids = input_ids[:, :batch_max_para_num, :batch_max_len]
+                    input_masks = input_masks[:, :batch_max_para_num, :batch_max_len]
+                    segment_ids = segment_ids[:, :batch_max_para_num, :batch_max_len]
+                    output_masks = output_masks[:, :batch_max_steps, :batch_max_para_num + 1]  # 1 for EOE
 
-                    target = torch.FloatTensor(output_masks.size()).fill_(
-                        NEGATIVE)  # (B, NUM_STEPS, |P|+1) <- 1 for EOE
+                    target = torch.zeros(output_masks.size()).fill_(NEGATIVE)  # (B, NUM_STEPS, |P|+1) <- 1 for EOE
                     for i in range(B):
                         output_masks[i, :num_steps[i], -1] = 1.0  # for EOE
 
@@ -464,42 +505,34 @@ def main():
 
                     neg_start = batch_max_steps - 1
                     while neg_start < batch_max_para_num:
-                        neg_end = min(neg_start + args.neg_chunk -
-                                      1, batch_max_para_num - 1)
+                        neg_end = min(neg_start + args.neg_chunk - 1, batch_max_para_num - 1)
                         neg_len = (neg_end - neg_start + 1)
 
                         input_ids_ = torch.cat(
-                            (input_ids[:, :batch_max_steps - 1, :],
-                             input_ids[:, neg_start:neg_start + neg_len, :]),
+                            (input_ids[:, :batch_max_steps - 1, :], input_ids[:, neg_start:neg_start + neg_len, :]),
                             dim=1)
                         input_masks_ = torch.cat(
-                            (input_masks[:, :batch_max_steps - 1, :],
-                             input_masks[:, neg_start:neg_start + neg_len, :]),
+                            (input_masks[:, :batch_max_steps - 1, :], input_masks[:, neg_start:neg_start + neg_len, :]),
                             dim=1)
                         segment_ids_ = torch.cat(
-                            (segment_ids[:, :batch_max_steps - 1, :],
-                             segment_ids[:, neg_start:neg_start + neg_len, :]),
+                            (segment_ids[:, :batch_max_steps - 1, :], segment_ids[:, neg_start:neg_start + neg_len, :]),
                             dim=1)
                         output_masks_ = torch.cat((output_masks[:, :, :batch_max_steps - 1],
-                                                   output_masks[:, :,
-                                                                neg_start:neg_start + neg_len],
+                                                   output_masks[:, :, neg_start:neg_start + neg_len],
                                                    output_masks[:, :, batch_max_para_num:batch_max_para_num + 1]),
                                                   dim=2)
                         target_ = torch.cat((target[:, :, :batch_max_steps - 1],
-                                             target[:, :,
-                                                    neg_start:neg_start + neg_len],
+                                             target[:, :, neg_start:neg_start + neg_len],
                                              target[:, :, batch_max_para_num:batch_max_para_num + 1]), dim=2)
 
                         if neg_start != batch_max_steps - 1:
                             output_masks_[:, :, :batch_max_steps - 1] = 0.0
                             output_masks_[:, :, -1] = 0.0
 
-                        loss = model(input_ids_, segment_ids_, input_masks_,
-                                     output_masks_, target_, batch_max_steps)
+                        loss = model(input_ids_, segment_ids_, input_masks_, output_masks_, target_, batch_max_steps)
 
                         if n_gpu > 1:
-                            # mean() to average on multi-gpu.
-                            loss = loss.mean()
+                            loss = loss.mean()  # mean() to average on multi-gpu.
                         if args.gradient_accumulation_steps > 1:
                             loss = loss / args.gradient_accumulation_steps
 
@@ -512,24 +545,54 @@ def main():
                         tr_loss += loss.item()
                         neg_start = neg_end + 1
 
-                    nb_tr_examples += B
-                    nb_tr_steps += 1
+                        # del input_ids_
+                        # del input_masks_
+                        # del segment_ids_
+                        # del output_masks_
+                        # del target_
+
                     if (step + 1) % args.gradient_accumulation_steps == 0:
-                        # modify learning rate with special warm up BERT uses
-                        # lr_this_step = args.learning_rate * warmup_linear(global_step / t_total, args.warmup_proportion)
-                        # for param_group in optimizer.param_groups:
-                        #     param_group['lr'] = lr_this_step
+
                         if args.fp16:
-                            torch.nn.utils.clip_grad_norm_(
-                                amp.master_params(optimizer), 1.0)
+                            torch.nn.utils.clip_grad_norm_(amp.master_params(optimizer), 1.0)
                         else:
-                            torch.nn.utils.clip_grad_norm_(
-                                model.parameters(), 1.0)
+                            torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
 
                         optimizer.step()
                         scheduler.step()
-                        optimizer.zero_grad()
+                        # optimizer.zero_grad()
+                        model.zero_grad()
                         global_step += 1
+
+                        if global_step % 50 == 0:
+                            _cur_steps = global_step if args.resume is None else global_step - args.resume
+                            logger.info(f"Training loss: {tr_loss / _cur_steps}\t"
+                                        f"Learning rate: {scheduler.get_lr()[0]}\t"
+                                        f"Global step: {global_step}")
+
+                        if global_step % args.save_steps == 0:
+                            if args.local_rank in [-1, 0]:
+                                model_to_save = model.module if hasattr(model, 'module') else model
+                                output_model_file = os.path.join(args.oss_cache_dir, f"pytorch_model_{global_step}.bin")
+                                torch_save_to_oss(model_to_save.state_dict(), output_model_file)
+
+                            _suffix = "" if args.local_rank == -1 else f"_{args.local_rank}"
+                            if args.fp16:
+                                amp_file = os.path.join(args.oss_cache_dir, f"amp_{global_step}{_suffix}.bin")
+                                torch_save_to_oss(amp.state_dict(), amp_file)
+                            optimizer_file = os.path.join(args.oss_cache_dir, f"optimizer_{global_step}{_suffix}.pt")
+                            torch_save_to_oss(optimizer.state_dict(), optimizer_file)
+                            scheduler_file = os.path.join(args.oss_cache_dir, f"scheduler_{global_step}{_suffix}.pt")
+                            torch_save_to_oss(scheduler.state_dict(), scheduler_file)
+
+                            logger.info(f"checkpoint of step {global_step} is saved to oss.")
+
+                    # del input_ids
+                    # del input_masks
+                    # del segment_ids
+                    # del output_masks
+                    # del target
+                    # del batch
 
                 chunk_index += 1
                 train_start_index = train_end_index + 1
@@ -538,9 +601,8 @@ def main():
                 if (chunk_index == CHUNK_NUM // 2 or save_retry) and args.local_rank in [-1, 0]:
                     status = save(model, args.output_dir, str(epc + 0.5))
                     save_retry = (not status)
-                    model_to_save = model.module if hasattr(model, 'module') else model
-                    torch_save_to_oss(model_to_save.state_dict(), f"/pytorch_model_{epc + 0.5}.bin")
 
+                del train_features_
                 del all_input_ids
                 del all_input_masks
                 del all_segment_ids
@@ -548,12 +610,16 @@ def main():
                 del all_num_paragraphs
                 del all_num_steps
                 del train_data
+                del train_sampler
+                del train_dataloader
+                gc.collect()
 
             # Save the model at the end of the epoch
             if args.local_rank in [-1, 0]:
                 save(model, args.output_dir, str(epc + 1))
-                model_to_save = model.module if hasattr(model, 'module') else model
-                torch_save_to_oss(model_to_save.state_dict(), f"/pytorch_model_{epc + 1}.bin")
+                # model_to_save = model.module if hasattr(model, 'module') else model  # Only save the model it-self
+                # output_model_file = os.path.join(args.oss_cache_dir, "pytorch_model_" + str(epc + 1) + ".bin")
+                # torch_save_to_oss(model_to_save.state_dict(), output_model_file)
 
             epc += 1
 
@@ -569,12 +635,15 @@ def main():
         import sys
         sys.path.append('../')
         from pipeline.tfidf_retriever import TfidfRetriever
-        tfidf_retriever = TfidfRetriever(
-            graph_retriever_config.db_save_path, None)
+        tfidf_retriever = TfidfRetriever(graph_retriever_config.db_save_path, None)
     else:
         tfidf_retriever = None
 
-    model_state_dict = load(args.output_dir, args.model_suffix)
+    if args.oss_cache_dir is not None:
+        file_name = 'pytorch_model_' + args.model_suffix + '.bin'
+        model_state_dict = torch.load(load_buffer_from_oss(os.path.join(args.oss_cache_dir, file_name)))
+    else:
+        model_state_dict = load(args.output_dir, args.model_suffix)
 
     model = RobertaForGraphRetriever.from_pretrained(args.bert_model, state_dict=model_state_dict,
                                                      graph_retriever_config=graph_retriever_config)
@@ -595,36 +664,26 @@ def main():
     eval_start_index = 0
 
     while eval_start_index < TOTAL_NUM:
-        eval_end_index = min(
-            eval_start_index + graph_retriever_config.eval_chunk - 1, TOTAL_NUM - 1)
+        eval_end_index = min(eval_start_index + graph_retriever_config.eval_chunk - 1, TOTAL_NUM - 1)
         chunk_len = eval_end_index - eval_start_index + 1
 
         eval_features = convert_examples_to_features(
-            eval_examples[eval_start_index:eval_start_index +
-                          chunk_len], args.max_seq_length, args.max_para_num,
+            eval_examples[eval_start_index:eval_start_index + chunk_len], args.max_seq_length, args.max_para_num,
             graph_retriever_config, tokenizer)
 
-        all_input_ids = torch.tensor(
-            [f.input_ids for f in eval_features], dtype=torch.long)
-        all_input_masks = torch.tensor(
-            [f.input_masks for f in eval_features], dtype=torch.long)
-        all_segment_ids = torch.tensor(
-            [f.segment_ids for f in eval_features], dtype=torch.long)
-        all_output_masks = torch.tensor(
-            [f.output_masks for f in eval_features], dtype=torch.float)
-        all_num_paragraphs = torch.tensor(
-            [f.num_paragraphs for f in eval_features], dtype=torch.long)
-        all_num_steps = torch.tensor(
-            [f.num_steps for f in eval_features], dtype=torch.long)
-        all_ex_indices = torch.tensor(
-            [f.ex_index for f in eval_features], dtype=torch.long)
+        all_input_ids = torch.tensor([f.input_ids for f in eval_features], dtype=torch.long)
+        all_input_masks = torch.tensor([f.input_masks for f in eval_features], dtype=torch.long)
+        all_segment_ids = torch.tensor([f.segment_ids for f in eval_features], dtype=torch.long)
+        all_output_masks = torch.tensor([f.output_masks for f in eval_features], dtype=torch.float)
+        all_num_paragraphs = torch.tensor([f.num_paragraphs for f in eval_features], dtype=torch.long)
+        all_num_steps = torch.tensor([f.num_steps for f in eval_features], dtype=torch.long)
+        all_ex_indices = torch.tensor([f.ex_index for f in eval_features], dtype=torch.long)
         eval_data = TensorDataset(all_input_ids, all_input_masks, all_segment_ids, all_output_masks, all_num_paragraphs,
                                   all_num_steps, all_ex_indices)
 
         # Run prediction for full data
         eval_sampler = SequentialSampler(eval_data)
-        eval_dataloader = DataLoader(
-            eval_data, sampler=eval_sampler, batch_size=args.eval_batch_size)
+        eval_dataloader = DataLoader(eval_data, sampler=eval_sampler, batch_size=args.eval_batch_size)
 
         for input_ids, input_masks, segment_ids, output_masks, num_paragraphs, num_steps, ex_indices in tqdm(
                 eval_dataloader, desc="Evaluating"):
@@ -636,8 +695,7 @@ def main():
             input_ids = input_ids[:, :batch_max_para_num, :batch_max_len]
             input_masks = input_masks[:, :batch_max_para_num, :batch_max_len]
             segment_ids = segment_ids[:, :batch_max_para_num, :batch_max_len]
-            output_masks = output_masks[:,
-                                        :batch_max_para_num + 2, :batch_max_para_num + 1]
+            output_masks = output_masks[:, :batch_max_para_num + 2, :batch_max_para_num + 1]
             output_masks[:, 1:, -1] = 1.0  # Ignore EOE in the first step
 
             input_ids = input_ids.to(device)
@@ -645,8 +703,7 @@ def main():
             segment_ids = segment_ids.to(device)
             output_masks = output_masks.to(device)
 
-            examples = [eval_examples[eval_start_index + ex_indices[i].item()]
-                        for i in range(input_ids.size(0))]
+            examples = [eval_examples[eval_start_index + ex_indices[i].item()] for i in range(input_ids.size(0))]
 
             with torch.no_grad():
                 pred, prob, topk_pred, topk_prob = model.beam_search(input_ids, segment_ids, input_masks,
@@ -671,8 +728,7 @@ def main():
                             entry[e.title_order[j]] = prob_[j]
                         pred_output[-1]['probs'].append(entry)
 
-                    topk_titles = [[e.title_order[p] for p in topk_pred[i][j]]
-                                   for j in range(len(topk_pred[i]))]
+                    topk_titles = [[e.title_order[p] for p in topk_pred[i][j]] for j in range(len(topk_pred[i]))]
                     pred_output[-1]['topk_titles'] = topk_titles
 
                     topk_probs = []

@@ -6,7 +6,7 @@ import random
 
 import torch
 from tqdm import tqdm
-from transformers import PreTrainedTokenizer
+from transformers import PreTrainedTokenizer, RobertaTokenizer
 
 logging.basicConfig(format='%(asctime)s - %(levelname)s - %(name)s -   %(message)s',
                     datefmt='%m/%d/%Y %H:%M:%S',
@@ -499,7 +499,15 @@ def tokenize_paragraph_transformers(passage, question, max_seq_length, tokenizer
     if "token_type_ids" in tokenized_outputs:
         segment_ids_ = tokenized_outputs["token_type_ids"]
     else:
-        segment_ids_ = [0] * len(input_ids_)
+        # segment_ids_ = [0] * len(input_ids_)
+        if isinstance(tokenizer, RobertaTokenizer):
+            sep_token_idx_0 = input_ids_.index(tokenizer.sep_token_id)
+            sep_token_idx_1 = sep_token_idx_0 + 1
+            true_token_num = sum(input_masks_)
+            segment_ids_ = [0] * sep_token_idx_1 + [1] * (true_token_num - sep_token_idx_1) + \
+                          [0] * (len(input_masks_) - true_token_num)
+        else:
+            segment_ids_ = [0] * len(input_ids_)
 
     return input_ids_, input_masks_, segment_ids_
 
