@@ -289,6 +289,8 @@ def main():
         from modeling_graph_retriever_iter import BertForGraphRetrieverV2 as BertForGraphRetriever
     elif args.model_version == 'v3':
         from modeling_graph_retriever_iter import BertForGraphRetrieverV3 as BertForGraphRetriever
+    elif args.model_version == 'bert':
+        from modeling_graph_retriever import BertForGraphRetriever
     else:
         raise RuntimeError()
 
