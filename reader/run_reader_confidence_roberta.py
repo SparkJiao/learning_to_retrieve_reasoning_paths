@@ -9,7 +9,8 @@ import sys
 
 import numpy as np
 import torch
-from rc_utils import convert_examples_to_features_yes_no, read_squad_examples, write_predictions_yes_no_no_empty_answer
+from rc_utils import convert_examples_to_features_yes_no_roberta, read_squad_examples, write_predictions_yes_no_no_empty_answer_roberta
+# from .rc_utils import convert_examples_to_features_yes_no_roberta, write_predictions_yes_no_no_empty_answer_roberta
 from torch import distributed as dist
 from torch.utils.data import (DataLoader, RandomSampler, SequentialSampler,
                               TensorDataset)
@@ -21,8 +22,7 @@ from transformers.optimization import AdamW, get_linear_schedule_with_warmup
 parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, parent_dir)
 
-from modeling_reader import BertForQuestionAnsweringConfidence
-from oss_utils import torch_save_to_oss, load_buffer_from_oss
+from oss_utils import torch_save_to_oss, load_buffer_from_oss, load_pretrain_from_oss
 
 logger = logging.getLogger(__name__)
 
@@ -142,12 +142,15 @@ def main():
                         type=float, default=1.0,
                         help="If you would like to change the two losses, please change the lambda scale.")
 
+    parser.add_argument('--model_version', default='v1', type=str)
+
     # Save checkpoints more
     parser.add_argument('--save_gran',
                         type=str, default="10,3",
                         help='"10,5" means saving a checkpoint every 1/10 of the total updates,'
                              'but start saving from the 5th attempt')
     parser.add_argument('--oss_cache_dir', default=None, type=str)
+    parser.add_argument("--oss_pretrain", default=None, type=str)
     parser.add_argument('--cache_dir', default=None, type=str)
     parser.add_argument('--dist', default=False, action='store_true')
 
@@ -216,13 +219,26 @@ def main():
     if not os.path.exists(args.output_dir):
         os.makedirs(args.output_dir)
 
+    if args.model_version == 'roberta':
+        from .modeling_reader import RobertaForQuestionAnsweringConfidence
+    elif args.model_version == 'v1':
+        from .modeling_reader import IterRobertaForQuestionAnsweringConfidence as RobertaForQuestionAnsweringConfidence
+    else:
+        raise RuntimeError(f"No compatible model version: {args.model_version}")
+
     # Prepare model and tokenizer
     tokenizer = AutoTokenizer.from_pretrained(args.bert_model, do_lower_case=args.do_lower_case)
 
-    model = BertForQuestionAnsweringConfidence.from_pretrained(args.bert_model,
-                                                               num_labels=4,
-                                                               no_masking=args.no_masking,
-                                                               lambda_scale=args.lambda_scale)
+    if args.oss_pretrain is not None:
+        logger.info(f"Loading pre-trained model state dict from oss: {args.oss_pretrain}")
+        pretrain_state_dict = torch.load(load_pretrain_from_oss(args.oss_pretrain), map_location='cpu')
+    else:
+        pretrain_state_dict = None
+    model = RobertaForQuestionAnsweringConfidence.from_pretrained(args.bert_model,
+                                                                  num_labels=4,
+                                                                  no_masking=args.no_masking,
+                                                                  lambda_scale=args.lambda_scale,
+                                                                  state_dict=pretrain_state_dict)
 
     model.to(device)
 
@@ -248,7 +264,7 @@ def main():
             train_examples = read_squad_examples(
                 input_file=args.train_file, is_training=True, version_2_with_negative=args.version_2_with_negative,
                 max_answer_len=args.max_answer_len, skip_negatives=args.skip_negatives)
-            train_features = convert_examples_to_features_yes_no(
+            train_features = convert_examples_to_features_yes_no_roberta(
                 examples=train_examples,
                 tokenizer=tokenizer,
                 max_seq_length=args.max_seq_length,
@@ -415,17 +431,17 @@ def main():
         # tokenizer = AutoTokenizer.from_pretrained(args.output_dir, do_lower_case=args.do_lower_case)
 
     if args.do_train is False and args.do_predict is True:
-        model = BertForQuestionAnsweringConfidence.from_pretrained(
+        model = RobertaForQuestionAnsweringConfidence.from_pretrained(
             args.output_dir, num_labels=4, no_masking=args.no_masking)
         tokenizer = AutoTokenizer.from_pretrained(
             args.output_dir, do_lower_case=args.do_lower_case)
     elif args.do_train is True and args.do_predict is True:
-        model = BertForQuestionAnsweringConfidence.from_pretrained(
+        model = RobertaForQuestionAnsweringConfidence.from_pretrained(
             args.output_dir, num_labels=4, no_masking=args.no_masking)
         tokenizer = AutoTokenizer.from_pretrained(
             args.output_dir, do_lower_case=args.do_lower_case)
     else:
-        model = BertForQuestionAnsweringConfidence.from_pretrained(
+        model = RobertaForQuestionAnsweringConfidence.from_pretrained(
             args.bert_model, num_labels=4, no_masking=args.no_masking, lambda_scale=args.lambda_scale)
 
     model.to(device)
@@ -434,7 +450,7 @@ def main():
         eval_examples = read_squad_examples(
             input_file=args.predict_file, is_training=False, version_2_with_negative=args.version_2_with_negative,
             max_answer_len=args.max_answer_length, skip_negatives=args.skip_negatives)
-        eval_features = convert_examples_to_features_yes_no(
+        eval_features = convert_examples_to_features_yes_no_roberta(
             examples=eval_examples,
             tokenizer=tokenizer,
             max_seq_length=args.max_seq_length,
@@ -491,12 +507,12 @@ def main():
             args.output_dir, "nbest_predictions.json")
         output_null_log_odds_file = os.path.join(
             args.output_dir, "null_odds.json")
-        write_predictions_yes_no_no_empty_answer(eval_examples, eval_features, all_results,
-                                                 args.n_best_size, args.max_answer_length,
-                                                 args.do_lower_case, output_prediction_file,
-                                                 output_nbest_file, output_null_log_odds_file, args.verbose_logging,
-                                                 args.version_2_with_negative, args.null_score_diff_threshold,
-                                                 args.no_masking)
+        write_predictions_yes_no_no_empty_answer_roberta(eval_examples, eval_features, all_results,
+                                                         args.n_best_size, args.max_answer_length,
+                                                         args.do_lower_case, output_prediction_file,
+                                                         output_nbest_file, output_null_log_odds_file, args.verbose_logging,
+                                                         args.version_2_with_negative, args.null_score_diff_threshold,
+                                                         args.no_masking)
 
 
 if __name__ == "__main__":

@@ -1,12 +1,14 @@
 import torch
 
-# from pytorch_pretrained_bert.tokenization import BertTokenizer
-from transformers import BertTokenizer
+from transformers import AutoTokenizer
 
-from reader.modeling_reader import BertForQuestionAnsweringConfidence, RobertaForQuestionAnsweringConfidence, IterBertForQuestionAnsweringConfidence, \
-    IterBertForQuestionAnsweringConfidenceV2, IterBertForQuestionAnsweringConfidenceV3, IterBertForQuestionAnsweringConfidenceV4
+from reader.modeling_reader import BertForQuestionAnsweringConfidence, RobertaForQuestionAnsweringConfidence, \
+    IterBertForQuestionAnsweringConfidence, \
+    IterBertForQuestionAnsweringConfidenceV2, IterBertForQuestionAnsweringConfidenceV3, IterBertForQuestionAnsweringConfidenceV4, \
+    IterRobertaForQuestionAnsweringConfidence
 from reader.rc_utils import read_squad_style_hotpot_examples, \
-    convert_examples_to_features, write_predictions_yes_no_beam, convert_examples_to_features_yes_no_roberta
+    convert_examples_to_features, write_predictions_yes_no_beam, convert_examples_to_features_yes_no_roberta, \
+    convert_examples_to_features_tf
 
 import collections
 
@@ -15,6 +17,7 @@ from torch.utils.data import TensorDataset, DataLoader, SequentialSampler
 
 RawResult = collections.namedtuple("RawResult",
                                    ["unique_id", "start_logits", "end_logits", "switch_logits"])
+
 
 class Reader:
     def __init__(self,
@@ -26,11 +29,11 @@ class Reader:
         # self.model = IterBertForQuestionAnsweringConfidenceV2.from_pretrained(args.reader_path, num_labels=4, no_masking=True)
         # self.model = IterBertForQuestionAnsweringConfidenceV3.from_pretrained(args.reader_path, num_labels=4, no_masking=True)
         # self.model = IterBertForQuestionAnsweringConfidenceV4.from_pretrained(args.reader_path, num_labels=4, no_masking=True)
-        
+
         # self.model = RobertaForQuestionAnsweringConfidence.from_pretrained(args.reader_path, num_labels=4, no_masking=True)
-        
+
         if args.reader_version == 'bert':
-            self.model = BertForQuestionAnsweringConfidence.from_pretrained(args.reader_path,  num_labels=4, no_masking=True)
+            self.model = BertForQuestionAnsweringConfidence.from_pretrained(args.reader_path, num_labels=4, no_masking=True)
         elif args.reader_version == 'iter':
             self.model = IterBertForQuestionAnsweringConfidence.from_pretrained(args.reader_path, num_labels=4, no_masking=True)
         elif args.reader_version == 'iter_v2':
@@ -41,12 +44,15 @@ class Reader:
             self.model = IterBertForQuestionAnsweringConfidenceV4.from_pretrained(args.reader_path, num_labels=4, no_masking=True)
         elif args.reader_version == 'roberta':
             self.model = RobertaForQuestionAnsweringConfidence.from_pretrained(args.reader_path, num_labels=4, no_masking=True)
+        elif args.reader_version == 'roberta_iter':
+            self.model = IterRobertaForQuestionAnsweringConfidence.from_pretrained(args.reader_path, num_labels=4, no_masking=True)
         else:
             raise RuntimeError()
 
-        self.tokenizer = BertTokenizer.from_pretrained(args.reader_path, do_lower_case=args.do_lower_case)
+        # self.tokenizer = BertTokenizer.from_pretrained(args.reader_path, do_lower_case=args.do_lower_case)
+        self.tokenizer = AutoTokenizer.from_pretrained(args.reader_path)
         self.device = device
-        
+
         self.model.to(device)
 
         if args.fp16:
@@ -113,14 +119,22 @@ class Reader:
                                              version_2_with_negative=False,
                                              store_path_prob=False)
 
-        features = convert_examples_to_features(
+        # features = convert_examples_to_features(
+        #     examples=e,
+        #     tokenizer=self.tokenizer,
+        #     max_seq_length=args.max_seq_length,
+        #     doc_stride=args.doc_stride,
+        #     max_query_length=args.max_query_length,
+        #     is_training=False,
+        #     quiet=True)
+        features = convert_examples_to_features_tf(
             examples=e,
             tokenizer=self.tokenizer,
             max_seq_length=args.max_seq_length,
             doc_stride=args.doc_stride,
             max_query_length=args.max_query_length,
             is_training=False,
-            quiet = True)
+            quiet=True)
         # features = convert_examples_to_features_yes_no_roberta(
         #     examples=e,
         #     tokenizer=self.tokenizer,
@@ -151,18 +165,18 @@ class Reader:
                 start_logits = batch_start_logits[i].detach().cpu().tolist()
                 end_logits = batch_end_logits[i].detach().cpu().tolist()
                 switch_logits = batch_switch_logits[i].detach().cpu().tolist()
-                eval_feature = features[f_offset+i]
-                unique_id = int(features[f_offset+i].unique_id)
+                eval_feature = features[f_offset + i]
+                unique_id = int(features[f_offset + i].unique_id)
                 all_results.append(RawResult(unique_id=unique_id,
                                              start_logits=start_logits,
                                              end_logits=end_logits,
                                              switch_logits=switch_logits))
             f_offset += input_ids.size(0)
-            
+
         return write_predictions_yes_no_beam(e, features, all_results,
                                              args.n_best_size, args.max_answer_length,
                                              args.do_lower_case, None,
                                              None, None, False,
                                              False, None,
                                              output_selected_paras=True,
-                                             quiet = True)
+                                             quiet=True)

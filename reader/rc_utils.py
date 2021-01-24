@@ -425,6 +425,230 @@ def convert_examples_to_features(examples, tokenizer, max_seq_length,
     return features
 
 
+def convert_examples_to_features_tf(examples, tokenizer: PreTrainedTokenizer, max_seq_length,
+                                    doc_stride, max_query_length, is_training,
+                                    cls_token_at_end=False,
+                                    sequence_a_segment_id=0, sequence_b_segment_id=1,
+                                    cls_token_segment_id=0,
+                                    mask_padding_with_zero=True,
+                                    quiet=False):
+    """Loads a data file into a list of `InputBatch`s as transformers style."""
+
+    unique_id = 1000000000
+
+    _extra_tokenize_args = {}
+    if isinstance(tokenizer, RobertaTokenizer):
+        _extra_tokenize_args["add_prefix_space"] = True
+
+    features = []
+    for (example_index, example) in enumerate(examples):
+        query_tokens = tokenizer.tokenize(example.question_text)
+
+        if len(query_tokens) > max_query_length:
+            query_tokens = query_tokens[0:max_query_length]
+
+        tok_to_orig_index = []
+        orig_to_tok_index = []
+        all_doc_tokens = []
+        for (i, token) in enumerate(example.doc_tokens):
+            orig_to_tok_index.append(len(all_doc_tokens))
+            sub_tokens = tokenizer.tokenize(token, **_extra_tokenize_args)
+            for sub_token in sub_tokens:
+                tok_to_orig_index.append(i)
+                all_doc_tokens.append(sub_token)
+
+        tok_start_position = None
+        tok_end_position = None
+        if is_training and example.is_impossible:
+            tok_start_position = -1
+            tok_end_position = -1
+        if is_training and not example.is_impossible:
+            tok_start_position = orig_to_tok_index[example.start_position]
+            if example.end_position < len(example.doc_tokens) - 1:
+                tok_end_position = orig_to_tok_index[example.end_position + 1] - 1
+            else:
+                tok_end_position = len(all_doc_tokens) - 1
+            (tok_start_position, tok_end_position) = _improve_answer_span(
+                all_doc_tokens, tok_start_position, tok_end_position, tokenizer,
+                example.orig_answer_text)
+
+        # The -3 accounts for [CLS], [SEP] and [SEP]
+        if isinstance(tokenizer, RobertaTokenizer):
+            max_tokens_for_doc = max_seq_length - len(query_tokens) - 4
+        else:
+            max_tokens_for_doc = max_seq_length - len(query_tokens) - 3
+
+        # We can have documents that are longer than the maximum sequence length.
+        # To deal with this we do a sliding window approach, where we take chunks
+        # of the up to our max length with a stride of `doc_stride`.
+        _DocSpan = collections.namedtuple(  # pylint: disable=invalid-name
+            "DocSpan", ["start", "length"])
+        doc_spans = []
+        start_offset = 0
+        while start_offset < len(all_doc_tokens):
+            length = len(all_doc_tokens) - start_offset
+            if length > max_tokens_for_doc:
+                length = max_tokens_for_doc
+            doc_spans.append(_DocSpan(start=start_offset, length=length))
+            if start_offset + length == len(all_doc_tokens):
+                break
+            start_offset += min(length, doc_stride)
+
+        for (doc_span_index, doc_span) in enumerate(doc_spans):
+            tokens = []
+            token_to_orig_map = {}
+            token_is_max_context = {}
+            segment_ids = []
+
+            p_mask = []
+
+            # CLS token at the beginning
+            if not cls_token_at_end:
+                tokens.append(tokenizer.cls_token)
+                segment_ids.append(cls_token_segment_id)
+                p_mask.append(0)
+                cls_index = 0
+
+            # Query
+            for token in query_tokens:
+                tokens.append(token)
+                segment_ids.append(sequence_a_segment_id)
+                p_mask.append(1)
+
+            # SEP token
+            tokens.append(tokenizer.sep_token)
+            segment_ids.append(sequence_a_segment_id)
+            p_mask.append(1)
+            if isinstance(tokenizer, RobertaTokenizer):
+                tokens.append(tokenizer.sep_token)
+                segment_ids.append(sequence_a_segment_id)
+                p_mask.append(1)
+
+            # Paragraph
+            for i in range(doc_span.length):
+                split_token_index = doc_span.start + i
+                token_to_orig_map[len(
+                    tokens)] = tok_to_orig_index[split_token_index]
+
+                is_max_context = _check_is_max_context(doc_spans, doc_span_index,
+                                                       split_token_index)
+                token_is_max_context[len(tokens)] = is_max_context
+                tokens.append(all_doc_tokens[split_token_index])
+                segment_ids.append(sequence_b_segment_id)
+                p_mask.append(0)
+            paragraph_len = doc_span.length
+
+            # SEP token
+            tokens.append(tokenizer.sep_token)
+            segment_ids.append(sequence_b_segment_id)
+            p_mask.append(1)
+
+            # CLS token at the end
+            if cls_token_at_end:
+                tokens.append(tokenizer.cls_token)
+                segment_ids.append(cls_token_segment_id)
+                p_mask.append(0)
+                cls_index = len(tokens) - 1  # Index of classification token
+
+            input_ids = tokenizer.convert_tokens_to_ids(tokens)
+
+            # The mask has 1 for real tokens and 0 for padding tokens. Only real
+            # tokens are attended to.
+            input_mask = [1 if mask_padding_with_zero else 0] * len(input_ids)
+
+            # Zero-pad up to the sequence length.
+            while len(input_ids) < max_seq_length:
+                input_ids.append(tokenizer.pad_token_id)
+                input_mask.append(0 if mask_padding_with_zero else 1)
+                segment_ids.append(tokenizer.pad_token_type_id)
+                p_mask.append(1)
+
+            assert len(input_ids) == max_seq_length
+            assert len(input_mask) == max_seq_length
+            assert len(segment_ids) == max_seq_length
+
+            span_is_impossible = example.is_impossible
+            start_position = None
+            end_position = None
+            switch = None
+            if is_training and not span_is_impossible:
+                doc_start = doc_span.start
+                doc_end = doc_span.start + doc_span.length - 1
+                out_of_span = False
+                if not (tok_start_position >= doc_start and
+                        tok_end_position <= doc_end):
+                    out_of_span = True
+                if out_of_span:
+                    start_position = 0
+                    end_position = 0
+                    span_is_impossible = True
+                else:
+                    doc_offset = len(query_tokens) + 2
+                    start_position = tok_start_position - doc_start + doc_offset
+                    end_position = tok_end_position - doc_start + doc_offset
+
+            if is_training and span_is_impossible:
+                start_position = cls_index
+                end_position = cls_index
+                switch = 1
+            elif is_training and not span_is_impossible:
+                switch = 0
+
+            # The questions whose ``is_impossible'' are originally True should
+            # be 1.
+            if example.is_impossible is True:
+                switch = 1
+
+            if example_index < 20 and not quiet:
+                logger.info("*** Example ***")
+                logger.info("unique_id: %s" % (unique_id))
+                logger.info("example_index: %s" % (example_index))
+                logger.info("doc_span_index: %s" % (doc_span_index))
+                logger.info("tokens: %s" % " ".join(tokens))
+                logger.info("token_to_orig_map: %s" % " ".join([
+                    "%d:%d" % (x, y) for (x, y) in token_to_orig_map.items()]))
+                logger.info("token_is_max_context: %s" % " ".join([
+                    "%d:%s" % (x, y) for (x, y) in token_is_max_context.items()
+                ]))
+                logger.info("input_ids: %s" %
+                            " ".join([str(x) for x in input_ids]))
+                logger.info(
+                    "input_mask: %s" % " ".join([str(x) for x in input_mask]))
+                logger.info(
+                    "segment_ids: %s" % " ".join([str(x) for x in segment_ids]))
+                if is_training and span_is_impossible:
+                    logger.info("impossible example")
+                if is_training and not span_is_impossible:
+                    answer_text = " ".join(
+                        tokens[start_position:(end_position + 1)])
+                    logger.info("start_position: %d" % (start_position))
+                    logger.info("end_position: %d" % (end_position))
+                    logger.info(
+                        "answer: %s" % (answer_text))
+
+            features.append(
+                InputFeatures(
+                    unique_id=unique_id,
+                    example_index=example_index,
+                    doc_span_index=doc_span_index,
+                    tokens=tokens,
+                    token_to_orig_map=token_to_orig_map,
+                    token_is_max_context=token_is_max_context,
+                    input_ids=input_ids,
+                    input_mask=input_mask,
+                    segment_ids=segment_ids,
+                    cls_index=cls_index,
+                    p_mask=p_mask,
+                    paragraph_len=paragraph_len,
+                    start_position=start_position,
+                    end_position=end_position,
+                    switch=switch,
+                    is_impossible=span_is_impossible))
+            unique_id += 1
+
+    return features
+
+
 # Convert example method for span + yes/no datasets (e.g., HotpotQA, NaturalQuestions)
 def convert_examples_to_features_yes_no(examples, tokenizer, max_seq_length,
                                         doc_stride, max_query_length, is_training,
@@ -1376,6 +1600,7 @@ def write_predictions_yes_no_beam(all_examples, all_features, all_results, n_bes
                                   max_answer_length, do_lower_case, output_prediction_file,
                                   output_nbest_file, output_null_log_odds_file, verbose_logging,
                                   version_2_with_negative, null_score_diff_threshold,
+                                  tokenizer: PreTrainedTokenizer,
                                   no_masking=False, output_selected_paras=False,
                                   quiet=False):
 
@@ -1383,6 +1608,8 @@ def write_predictions_yes_no_beam(all_examples, all_features, all_results, n_bes
         """Write final predictions to the json file and log-odds of null if needed."""
         logger.info("Writing predictions to: %s" % (output_prediction_file))
         logger.info("Writing nbest to: %s" % (output_nbest_file))
+
+    basic_tokenizer = BasicTokenizer(do_lower_case=do_lower_case)
 
     example_index_to_features = collections.defaultdict(list)
     for feature in all_features:
@@ -1480,15 +1707,17 @@ def write_predictions_yes_no_beam(all_examples, all_features, all_results, n_bes
                 orig_doc_end = feature.token_to_orig_map[pred.end_index]
                 orig_tokens = example.doc_tokens[orig_doc_start:(
                     orig_doc_end + 1)]
-                tok_text = " ".join(tok_tokens)
+                # tok_text = " ".join(tok_tokens)
+                tok_text = tokenizer.convert_tokens_to_string(tok_tokens)
 
                 # De-tokenize WordPieces that have been split off.
-                tok_text = tok_text.replace(" ##", "")
-                tok_text = tok_text.replace("##", "")
+                # tok_text = tok_text.replace(" ##", "")
+                # tok_text = tok_text.replace("##", "")
 
                 # Clean whitespace
                 tok_text = tok_text.strip()
                 tok_text = " ".join(tok_text.split())
+                tok_text = " ".join(basic_tokenizer.tokenize(tok_text))
                 orig_text = " ".join(orig_tokens)
 
                 final_text = get_final_text(
