@@ -33,7 +33,7 @@ logging.basicConfig(format='%(asctime)s - %(levelname)s - %(name)s -   %(message
                     level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-oss_features_cache_dir = 'roberta_cached_features/'
+oss_features_cache_dir = 'roberta_cached_retriever_features/'
 
 
 def main():
@@ -460,7 +460,7 @@ def main():
                 else:
                     train_sampler = RandomSampler(train_data)
                 train_dataloader = DataLoader(train_data, sampler=train_sampler, batch_size=args.train_batch_size,
-                                              pin_memory=True, num_workers=8)
+                                              pin_memory=True, num_workers=4)
 
                 if args.local_rank != -1:
                     train_dataloader.sampler.set_epoch(epc)

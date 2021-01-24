@@ -211,3 +211,48 @@ class IterBertModelForRetrievalV3(IterBertModel):
         ], dim=-1))))
 
         return retrieve_o
+
+
+class IterBertModelForRetrievalV4(IterBertModel):
+    model_prefix = 'iter_bert_retrieval_v4'
+
+    def __init__(self, config: IterBertPreTrainedConfig):
+        super().__init__(config)
+
+        self.retrieval_q = nn.Linear(config.hidden_size, config.hidden_size)
+        self.retrieval_k = nn.Linear(config.hidden_size, config.hidden_size)
+
+        self.retrieval_o = nn.Linear(config.hidden_size * 2, config.hidden_size)
+
+        self.iter_bert_dropout = nn.Dropout(config.hidden_dropout_prob)
+        self.layer_norm = nn.LayerNorm(config.hidden_size)
+
+    def forward(self, input_ids, attention_mask=None, token_type_ids=None, **kwargs):
+        batch, seq_len = input_ids.size()
+
+        # `token_type_ids`: [0,0,0,1,1,1,1,0,0,0]
+        # `attention_mask`: [1,1,1,1,1,1,1,0,0,0]
+        # `1` for true token and `0` for mask
+        # question_mask = (1 - token_type_ids) * attention_mask
+        # passage_mask = token_type_ids * attention_mask
+
+        seq_output = self.bert(input_ids=input_ids,
+                               attention_mask=attention_mask,
+                               token_type_ids=token_type_ids)[0]
+
+        cls_h = seq_output[:, :1]
+        question_mask = question_mask.to(seq_output.dtype)
+        passage_mask = passage_mask.to(seq_output.dtype)
+
+        q_hidden = self.query(cls_h, seq_output.unsqueeze(1), 1 - question_mask.unsqueeze(1),
+                              aligned=True, residual=False).view(batch, seq_output.size(-1))
+
+        retrieve_q = self.retrieval_q(q_hidden)
+        retrieve_k = self.retrieval_k(seq_output)
+        retrieve_s = torch.einsum("bh,bsh->bs", retrieve_q, retrieve_k)
+        retrieve_a = torch.softmax(retrieve_s + (1 - attention_mask) * -65500.0, dim=1)
+        retrieve_o = self.layer_norm(self.iter_bert_dropout(self.retrieval_o(torch.cat([
+            q_hidden, torch.einsum("bs,bsh->bh", retrieve_a, seq_output)
+        ], dim=-1))))
+
+        return retrieve_o
