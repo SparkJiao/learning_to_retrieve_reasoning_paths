@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 RawResult = collections.namedtuple("RawResult",
                                    ["unique_id", "start_logits", "end_logits", "switch_logits"])
 
-oss_features_cache_dir = 'reader_bert_feature_cache_dir/'
+oss_features_cache_dir = 'reader_roberta_feature_cache_dir/'
 
 
 def main():
@@ -142,7 +142,7 @@ def main():
                         type=float, default=1.0,
                         help="If you would like to change the two losses, please change the lambda scale.")
 
-    parser.add_argument('--model_version', default='v1', type=str)
+    parser.add_argument('--model_version', default='roberta', type=str)
 
     # Save checkpoints more
     parser.add_argument('--save_gran',
@@ -220,14 +220,14 @@ def main():
         os.makedirs(args.output_dir)
 
     if args.model_version == 'roberta':
-        from .modeling_reader import RobertaForQuestionAnsweringConfidence
+        from modeling_reader import RobertaForQuestionAnsweringConfidence
     elif args.model_version == 'v1':
-        from .modeling_reader import IterRobertaForQuestionAnsweringConfidence as RobertaForQuestionAnsweringConfidence
+        from modeling_reader import IterRobertaForQuestionAnsweringConfidence as RobertaForQuestionAnsweringConfidence
     else:
         raise RuntimeError(f"No compatible model version: {args.model_version}")
 
     # Prepare model and tokenizer
-    tokenizer = AutoTokenizer.from_pretrained(args.bert_model, do_lower_case=args.do_lower_case)
+    tokenizer = AutoTokenizer.from_pretrained(args.bert_model)
 
     if args.oss_pretrain is not None:
         logger.info(f"Loading pre-trained model state dict from oss: {args.oss_pretrain}")
@@ -246,9 +246,8 @@ def main():
     train_features = None
     num_train_optimization_steps = None
     if args.do_train:
-        cached_train_features_file = args.train_file + '_{0}_{1}_{2}_{3}_{4}'.format(
-            model.base_model_prefix, str(args.max_seq_length), str(args.doc_stride), str(args.max_query_length),
-            tokenizer.do_lower_case)
+        cached_train_features_file = args.train_file + '_{0}_{1}_{2}_{3}'.format(
+            model.base_model_prefix, str(args.max_seq_length), str(args.doc_stride), str(args.max_query_length))
         cached_train_features_file_name = cached_train_features_file.split('/')[-1]
         _oss_feature_save_path = os.path.join(oss_features_cache_dir, cached_train_features_file_name)
 
@@ -512,7 +511,7 @@ def main():
                                                          args.do_lower_case, output_prediction_file,
                                                          output_nbest_file, output_null_log_odds_file, args.verbose_logging,
                                                          args.version_2_with_negative, args.null_score_diff_threshold,
-                                                         args.no_masking)
+                                                         tokenizer, args.no_masking)
 
 
 if __name__ == "__main__":

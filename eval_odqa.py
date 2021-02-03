@@ -223,6 +223,8 @@ class ODQAEval:
                             action='store_true',
                             help="Pruning after aggregating all paragraphs from top k TFIDF paragraphs.")
 
+        parser.add_argument("--predict", default=False, action='store_true')
+
         # fp16 option
         parser.add_argument("--fp16", default=False, action='store_true')
         parser.add_argument("--fp16_opt_level", default="O1", type=str)

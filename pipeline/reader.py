@@ -1,6 +1,6 @@
 import torch
 
-from transformers import AutoTokenizer
+from transformers import AutoTokenizer, RobertaTokenizer, BertTokenizer
 
 from reader.modeling_reader import BertForQuestionAnsweringConfidence, RobertaForQuestionAnsweringConfidence, \
     IterBertForQuestionAnsweringConfidence, \
@@ -49,8 +49,10 @@ class Reader:
         else:
             raise RuntimeError()
 
-        # self.tokenizer = BertTokenizer.from_pretrained(args.reader_path, do_lower_case=args.do_lower_case)
-        self.tokenizer = AutoTokenizer.from_pretrained(args.reader_path)
+        if args.reader_version == 'bert':
+            self.tokenizer = BertTokenizer.from_pretrained(args.reader_path, do_lower_case=args.do_lower_case)
+        else:
+            self.tokenizer = AutoTokenizer.from_pretrained(args.reader_path)
         self.device = device
 
         self.model.to(device)
@@ -134,7 +136,7 @@ class Reader:
             doc_stride=args.doc_stride,
             max_query_length=args.max_query_length,
             is_training=False,
-            quiet=True)
+            quiet=False)
         # features = convert_examples_to_features_yes_no_roberta(
         #     examples=e,
         #     tokenizer=self.tokenizer,
@@ -173,10 +175,13 @@ class Reader:
                                              switch_logits=switch_logits))
             f_offset += input_ids.size(0)
 
+
+        _do_lower_case = isinstance(self.tokenizer, BertTokenizer)
         return write_predictions_yes_no_beam(e, features, all_results,
                                              args.n_best_size, args.max_answer_length,
-                                             args.do_lower_case, None,
+                                             _do_lower_case, None,
                                              None, None, False,
                                              False, None,
+                                             tokenizer=self.tokenizer,
                                              output_selected_paras=True,
                                              quiet=True)

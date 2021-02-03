@@ -10,15 +10,16 @@ def main():
 
     if odqa.args.sequential_sentence_selector_path is not None:
         tfidf_retrieval_output, selector_output, reader_output, sp_selector_output = odqa.eval()
-        if odqa.args.sp_eval is True:
-            # eval the performance; based on F1 & EM.
-            predictions = convert_qa_sp_results_into_hp_eval_format(
-            reader_output, sp_selector_output, odqa.args.db_path)
-            results = evaluate_w_sp_facts(
-                odqa.args.eval_file_path_sp, predictions, odqa.args.sampled)
-        else:
-            results = evaluate(odqa.args.eval_file_path, reader_output)
-        print(results)
+        if not odqa.args.predict:
+            if odqa.args.sp_eval is True:
+                # eval the performance; based on F1 & EM.
+                predictions = convert_qa_sp_results_into_hp_eval_format(
+                reader_output, sp_selector_output, odqa.args.db_path)
+                results = evaluate_w_sp_facts(
+                    odqa.args.eval_file_path_sp, predictions, odqa.args.sampled)
+            else:
+                results = evaluate(odqa.args.eval_file_path, reader_output)
+            print(results)
         
     else:
         tfidf_retrieval_output, selector_output, reader_output = odqa.eval()

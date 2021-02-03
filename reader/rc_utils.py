@@ -583,7 +583,10 @@ def convert_examples_to_features_tf(examples, tokenizer: PreTrainedTokenizer, ma
                     end_position = 0
                     span_is_impossible = True
                 else:
-                    doc_offset = len(query_tokens) + 2
+                    if isinstance(tokenizer, RobertaTokenizer):
+                        doc_offset = len(query_tokens) + 3
+                    else:
+                        doc_offset = len(query_tokens) + 2
                     start_position = tok_start_position - doc_start + doc_offset
                     end_position = tok_end_position - doc_start + doc_offset
 
@@ -1027,7 +1030,7 @@ def convert_examples_to_features_yes_no_roberta(examples, tokenizer: RobertaToke
                     end_position = 0
                     span_is_impossible = True
                 else:
-                    doc_offset = len(query_tokens) + 2
+                    doc_offset = len(query_tokens) + 3
                     start_position = tok_start_position - doc_start + doc_offset
                     end_position = tok_end_position - doc_start + doc_offset
 
@@ -1069,12 +1072,14 @@ def convert_examples_to_features_yes_no_roberta(examples, tokenizer: RobertaToke
                 if is_training and span_is_impossible:
                     logger.info("impossible example")
                 if is_training and not span_is_impossible:
-                    answer_text = " ".join(
-                        tokens[start_position:(end_position + 1)])
+                    # answer_text = " ".join(
+                    #     tokens[start_position:(end_position + 1)])
+                    answer_text = tokenizer.convert_tokens_to_string(tokens[start_position: (end_position + 1)])
                     logger.info("start_position: %d" % (start_position))
                     logger.info("end_position: %d" % (end_position))
                     logger.info(
                         "answer: %s" % (answer_text))
+                    logger.info(f"ground truth answer: {example.orig_answer_text}")
 
             features.append(
                 InputFeatures(
@@ -1395,7 +1400,7 @@ def write_predictions_yes_no_no_empty_answer_roberta(all_examples, all_features,
     logger.info("Writing predictions to: %s" % (output_prediction_file))
     logger.info("Writing nbest to: %s" % (output_nbest_file))
 
-    basic_tokenizer = BasicTokenizer(do_lower_case=do_lower_case)
+    # basic_tokenizer = BasicTokenizer(do_lower_case=do_lower_case)
 
     example_index_to_features = collections.defaultdict(list)
     for feature in all_features:
@@ -1502,7 +1507,7 @@ def write_predictions_yes_no_no_empty_answer_roberta(all_examples, all_features,
                 # Clean whitespace
                 tok_text = tok_text.strip()
                 tok_text = " ".join(tok_text.split())
-                tok_text = " ".join(basic_tokenizer.tokenize(tok_text))
+                # tok_text = " ".join(basic_tokenizer.tokenize(tok_text))
                 orig_text = " ".join(orig_tokens)
 
                 final_text = get_final_text(
@@ -1609,7 +1614,7 @@ def write_predictions_yes_no_beam(all_examples, all_features, all_results, n_bes
         logger.info("Writing predictions to: %s" % (output_prediction_file))
         logger.info("Writing nbest to: %s" % (output_nbest_file))
 
-    basic_tokenizer = BasicTokenizer(do_lower_case=do_lower_case)
+    # basic_tokenizer = BasicTokenizer(do_lower_case=do_lower_case)
 
     example_index_to_features = collections.defaultdict(list)
     for feature in all_features:
@@ -1717,7 +1722,7 @@ def write_predictions_yes_no_beam(all_examples, all_features, all_results, n_bes
                 # Clean whitespace
                 tok_text = tok_text.strip()
                 tok_text = " ".join(tok_text.split())
-                tok_text = " ".join(basic_tokenizer.tokenize(tok_text))
+                # tok_text = " ".join(basic_tokenizer.tokenize(tok_text))
                 orig_text = " ".join(orig_tokens)
 
                 final_text = get_final_text(

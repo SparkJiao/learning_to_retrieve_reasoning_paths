@@ -235,6 +235,11 @@ class GraphRetriever:
 
             self.model = RobertaForGraphRetriever.from_pretrained(args.bert_model_graph_retriever, state_dict=model_state_dict,
                                                                  graph_retriever_config=self.graph_retriever_config)
+        elif args.graph_retriever_version == 'roberta_iter':
+            from graph_retriever.modeling_graph_retriever_roberta import RobertaForGraphRetrieverIterV3
+
+            self.model = RobertaForGraphRetrieverIterV3.from_pretrained(args.bert_model_graph_retriever, state_dict=model_state_dict,
+                                                                        graph_retriever_config=self.graph_retriever_config)
         else:
             raise RuntimeError()
 
