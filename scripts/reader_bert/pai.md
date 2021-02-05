@@ -139,6 +139,14 @@ pai -name pytorch151
 -Doutputs="odps://crm_nlp_dev/volumes/fangxi/hotpot_bb_reader_bl_2" 
 -Dcluster="{\"worker\":{\"cpu\":300, \"memory\":40000, \"gpu\":100}}" -DworkerCount=2;
 
+<!-- bert-baseline w mlm-baseline pre-train -->
+pai -name pytorch151 
+-Dscript="file:///home/admin/workspace/project/learning_to_retrieve.tar.gz" 
+-DentryFile="reader/run_reader_confidence_bert.py" -DuserDefinedParameters="--bert_model /data/volume1/bert_mlm_baseline_2 --train_file /data/volume2/hotpot_reader_train_data.json --predict_file /data/volume2/hotpot_dev_squad_v2.0_format.json --output_dir /data/output1/ --max_seq_length 384 --num_train_epochs 3.0 --learning_rate 5e-5 --do_train --version_2_with_negative --do_lower_case --train_batch_size 32 --gradient_accumulation_steps 2 --oss_cache_dir bert_reader_mlm_baseline/ --dist --save_gran 20,5 " 
+-Dvolumes="odps://crm_nlp_dev/volumes/fangxi/bert_mlm_baseline2,odps://crm_nlp_dev/volumes/fangxi/hotpot_reader_data" 
+-Doutputs="odps://crm_nlp_dev/volumes/fangxi/hotpot_bb_reader_mlm_14" 
+-Dcluster="{\"worker\":{\"cpu\":400, \"memory\":40000, \"gpu\":100}}" -DworkerCount=1;
+
 
 pai -name pytorch151 
 -Dscript="file:///home/admin/workspace/project/learning_to_retrieve.tar.gz" 
